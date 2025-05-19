@@ -1,0 +1,1 @@
+const updateAndRenderFn = fn () void;

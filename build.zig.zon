@@ -1,0 +1,21 @@
+.{
+    .name = .foo,
+
+    .version = "0.0.0",
+
+    .fingerprint = 0x8c736521a81f7bf8, // Changing this has security and trust implications.
+
+    .minimum_zig_version = "0.14.0",
+
+    .dependencies = .{ .objc = .{
+        .url = "https://github.com/mitchellh/zig-objc/archive/3ab0d37c7d6b933d6ded1b3a35b6b60f05590a98.tar.gz",
+        .hash = "zig_objc-0.0.0-Ir_Sp3TyAADEVRTxXlScq3t_uKAM91MYNerZkHfbD0yt",
+        .lazy = true,
+    } },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "info.plist",
+    },
+}
