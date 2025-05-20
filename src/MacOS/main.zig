@@ -1,6 +1,9 @@
 const std = @import("std");
 const objc = @import("objc");
-const AppDelegate = @import("Delegate.zig");
+const Delegate = @import("Delegate.zig");
+const glue = @import("glue");
+
+const GameCode = struct {};
 
 pub fn main() !void {
     const args = try std.process.argsAlloc(std.heap.page_allocator);
@@ -11,17 +14,10 @@ pub fn main() !void {
             break :blk args[i + 1];
         }
     } else null;
-
-    const dll = if (lib_path) |path| try std.DynLib.open(path) else null;
-    if (dll) |_| {
-        std.debug.print("loaded dll\n", .{});
-    }
+    const delegate = try Delegate.init(lib_path);
 
     const NSApplication: objc.Class = objc.getClass("NSApplication").?;
-    const app: objc.Object = NSApplication.msgSend(objc.Object, "sharedApplication", .{});
-    const delegate = try AppDelegate.createDelegate();
-
-    app.msgSend(void, "setDelegate:", .{delegate});
-
+    const app = NSApplication.msgSend(objc.Object, "sharedApplication", .{});
+    app.msgSend(void, "setDelegate:", .{delegate.obj});
     app.msgSend(void, "run", .{});
 }

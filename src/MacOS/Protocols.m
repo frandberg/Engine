@@ -5,6 +5,7 @@
 
 @interface ViewDelegate : NSObject <MTKViewDelegate>
 @end
+
 @implementation AppDelegate
 @end
 @implementation ViewDelegate
