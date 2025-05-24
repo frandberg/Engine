@@ -5,7 +5,7 @@ pub const c_OffscreenBuffer = extern struct {
     height: u32,
 };
 
-pub const UpdateAndRenderFn = fn (ofscreen_buffer: c_OffscreenBuffer, time_step: f64) callconv(.c) void;
+pub const UpdateAndRenderFn = fn () callconv(.c) void;
 
 fn c_OffscreenBufferSize(buffer: c_OffscreenBuffer) u32 {
     return buffer.width * buffer.height * OffscreenBuffer.elements_per_pixel * ((OffscreenBuffer.bits_per_element + 7) / 8);
@@ -45,10 +45,4 @@ pub const OffscreenBuffer = struct {
     }
 };
 
-pub fn updateAndRenderStub(c_buffer: c_OffscreenBuffer, _: f64) callconv(.c) void {
-    const buffer = OffscreenBuffer.fromC(c_buffer);
-    @memset(buffer.memory, 0);
-    const memory: []u32 = @alignCast(std.mem.bytesAsSlice(u32, buffer.memory));
-    const magenta: u32 = (255 | (255 << 16));
-    @memset(memory, magenta);
-}
+pub fn updateAndRenderStub() callconv(.c) void {}
