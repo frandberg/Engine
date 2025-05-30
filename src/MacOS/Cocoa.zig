@@ -1,9 +1,11 @@
 const std = @import("std");
 const objc = @import("objc");
 const Object = objc.Object;
+const Id = objc.c.id;
 
-const UInteger = u64;
-const Float = f64;
+pub const UInteger = u64;
+pub const Integer = i64;
+pub const Float = f64;
 
 pub const Point = extern struct {
     x: Float,
@@ -29,47 +31,25 @@ pub fn String(string: []const u8) Object {
 pub const App = struct {
     object: Object,
 
-    pub fn get() App {
-        const NSApplication = objc.getClass("NSApplication").?;
-        return .{ .object = NSApplication.msgSend(Object, "sharedApplication", .{}) };
-    }
-    pub fn activate(_: App) void {
-        // const NSObject = objc.getClass("NSObject").?;
-        // const AppDelegate = objc.allocateClassPair(NSObject, "AppDelegate").?;
-        //
-        // const result = try AppDelegate.addMethod("applicationDidFinishLaunching:", didFinLaunch);
-        // std.debug.assert(result);
-        //
-        // objc.registerClassPair(AppDelegate);
-        // const sel = objc.sel("applicationDidFinishLaunching:");
-        // std.debug.assert(objc.c.class_respondsToSelector(AppDelegate.value, sel.value));
-        //
-        // const delegate = AppDelegate.msgSend(
-        //     Object,
-        //     "alloc",
-        //     .{},
-        // ).msgSend(
-        //     Object,
-        //     "init",
-        //     .{},
-        // );
-        //
-        // self.object.setProperty("delegate", delegate);
+    pub fn init() App {
+        const NSApplicationClass = objc.getClass("NSApplication").?;
+        const app = NSApplicationClass.msgSend(Object, "sharedApplication", .{});
 
-        // self.object.msgSend(void, "setActivationPolicy:", .{@as(UInteger, 1)}); // NSApplicationActivationPolicyRegular
-        // self.object.msgSend(void, "activateIgnoringOtherApps:", .{true});
-        // self.object.msgSend(void, "finishLaunching", .{});
+        app.msgSend(void, "setActivationPolicy:", .{@as(Integer, 0)});
+        app.msgSend(void, "finishLaunching", .{});
+        return app;
     }
 
     pub fn updateWindows(self: App) void {
         self.object.msgSend(void, "updateWindows", .{});
     }
 
+    extern var NSDefaultRunLoopMode: Id;
     pub fn getNextEvent(self: App) ?Event {
         const event = self.object.msgSend(Object, "nextEventMatchingMask:untilDate:inMode:dequeue:", .{
             Event.mask,
             @as(usize, 0),
-            String("NSRunLoopCommonModes"),
+            NSDefaultRunLoopMode,
             true,
         });
         if (event.value == @as(objc.c.id, @ptrFromInt(0))) {

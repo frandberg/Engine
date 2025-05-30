@@ -15,7 +15,6 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-
     exe_mod.addImport("glue", glue);
 
     const exe = b.addExecutable(.{
@@ -30,15 +29,15 @@ pub fn build(b: *std.Build) !void {
         }
 
         exe_mod.linkFramework("Appkit", .{});
-        exe_mod.linkFramework("Foundation", .{});
-        exe_mod.linkFramework("QuartzCore", .{});
-        exe_mod.linkFramework("MetalKit", .{});
-        exe_mod.linkFramework("Metal", .{});
+        // exe_mod.linkFramework("Foundation", .{});
+        // exe_mod.linkFramework("QuartzCore", .{});
+        // exe_mod.linkFramework("MetalKit", .{});
+        // exe_mod.linkFramework("Metal", .{});
 
-        exe_mod.addCSourceFile(.{
-            .file = b.path("src/MacOS/Protocols.m"),
-            .flags = &.{},
-        });
+        // exe_mod.addCSourceFile(.{
+        //     .file = b.path("src/MacOS/Protocols.m"),
+        //     .flags = &.{},
+        // });
     } else {
         @panic("Only MacOS is suported\n");
     }
@@ -84,18 +83,18 @@ fn installAppBundle(
     var iter = try std.fs.path.componentIterator(bundle_path);
     _ = iter.first();
     const install_plist_dir = iter.next().?.path;
-    const install_plist_path = try std.fs.path.join(b.allocator, &.{ "bundle", install_plist_dir, "info.plist" });
+    const install_plist_path = try std.fs.path.join(b.allocator, &.{ "bundle", install_plist_dir, "Info.plist" });
     const install_plist: *std.Build.Step.InstallFile = if (info_plist) |custom|
         b.addInstallFile(custom, install_plist_dir)
     else blk: {
         const info_plist_str = try std.fmt.allocPrint(
             b.allocator,
-            @embedFile("MacOS/info.plist"),
+            @embedFile("MacOS/Info.plist"),
             .{ exe.name, exe.name, exe.name, exe.name },
         );
-        const wf = b.addWriteFile("info.plist", info_plist_str);
+        const wf = b.addWriteFile("Info.plist", info_plist_str);
         const install_file = b.addInstallFile(
-            try wf.getDirectory().join(b.allocator, "info.plist"),
+            try wf.getDirectory().join(b.allocator, "Info.plist"),
             install_plist_path,
         );
         install_file.step.dependOn(&wf.step);

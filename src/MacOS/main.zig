@@ -1,75 +1,88 @@
 const std = @import("std");
 const objc = @import("objc");
-const Delegate = @import("Delegate.zig");
-const glue = @import("glue");
 const ns = @import("Cocoa.zig");
+const c = objc.c;
 
 const Object = objc.Object;
+const Id = objc.c.id;
 
-const GameCode = @import("GameCode.zig");
+var running: bool = false;
 
+extern const NSApp: Id;
+extern var NSDefaultRunLoopMode: Id;
+
+fn windowWillClose(_: Id, _: c.SEL, _: Id) callconv(.c) void {
+    running = false;
+}
 pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.page_allocator);
-    defer std.heap.page_allocator.free(args);
+    const NSApplicationClass = objc.getClass("NSApplication").?;
+    const app = NSApplicationClass.msgSend(Object, "sharedApplication", .{});
 
-    var lib_path: ?[]const u8 = null;
-    for (args, 0..) |arg, i| {
-        if (std.mem.eql(u8, arg, "-lib")) {
-            lib_path = args[i + 1];
-            break;
-        }
-    }
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
-    defer _ = gpa.deinit();
+    app.msgSend(void, "setActivationPolicy:", .{@as(ns.Integer, 0)});
+    app.msgSend(void, "finishLaunching", .{});
 
-    const allocator = gpa.allocator();
-    const exe_path = try std.fs.selfExePathAlloc(allocator);
-    defer allocator.free(exe_path);
+    const NSSCreenClass = objc.getClass("NSScreen").?;
+    const main_screen = NSSCreenClass.msgSend(Object, "mainScreen", .{});
+    const backing_scale_factor = main_screen.msgSend(ns.Float, "backingScaleFactor", .{});
 
-    std.debug.print("exe path: {s}\nlib_path: {?s}\n", .{ exe_path, lib_path });
-
-    // const NSApplication = objc.getClass("NSApplication").?;
-
-    const app = ns.App.get();
-
-    const window = ns.Window.init(
-        "poop 420",
-        800,
-        600,
-        100,
-        100,
-        .{
-            .closable = 1,
-            .titled = 1,
-            .miniaturizable = 1,
-            .resizable = 1,
+    const rect: ns.Rect = .{
+        .origin = .{
+            .x = 0,
+            .y = 0,
         },
-    );
+        .size = .{
+            .width = 800 / backing_scale_factor,
+            .height = 600 / backing_scale_factor,
+        },
+    };
 
-    window.makeKeyandOrderFront();
+    const NSWindowClass = objc.getClass("NSWindow").?;
+    const window_alloc = NSWindowClass.msgSend(Object, "alloc", .{});
+    const window = window_alloc.msgSend(Object, "initWithContentRect:styleMask:backing:defer:", .{
+        rect,
+        @as(ns.UInteger, 15),
+        @as(ns.UInteger, 2),
+        false,
+    });
+    window.msgSend(void, "setReleasedWhenClosed:", .{false});
 
-    app.activate();
+    const title_string = ns.String("poop window");
+    window.msgSend(void, "setTitle:", .{title_string});
+    window.msgSend(void, "makeKeyAndOrderFront:", .{window});
+    window.msgSend(void, "setAcceptsMouseMovedEvents:", .{true});
 
-    var running = true;
-    var game_code = try GameCode.load(allocator, lib_path.?);
+    const NSObjectClass = objc.getClass("NSObject").?;
+    const WidnowDelegateClass = objc.allocateClassPair(NSObjectClass, "WindowDelegate").?;
+    std.debug.assert(try WidnowDelegateClass.addMethod("windowWillClose:", windowWillClose));
+    const window_delegate = WidnowDelegateClass.msgSend(Object, "alloc", .{}).msgSend(Object, "init", .{});
+
+    window.msgSend(void, "setDelegate:", .{window_delegate});
+
+    // const content_view = window.msgSend(Object, "contentView", .{});
+
+    const NSColorClass = objc.getClass("NSColor").?;
+    const red_color = NSColorClass.msgSend(Object, "redColor", .{});
+    window.msgSend(void, "setBackgroundColor:", .{red_color});
+
+    app.msgSend(void, "activateIgnoringOtherApps:", .{true});
+    const NSDateClass = objc.getClass("NSDate").?;
+    const event_mask: ns.UInteger = std.math.maxInt(ns.UInteger);
+
+    // const runloop_mode = ns.String("kCFRunLoopDefaultMode");
+    running = true;
     while (running) {
-        if (try GameCode.getLastChangedTime(game_code.lib_path) != game_code.last_change_time) {
-            game_code.unload();
-            game_code = try GameCode.load(allocator, lib_path.?);
+        const distant_past = NSDateClass.msgSend(Object, "distantPast", .{});
+        const event = app.msgSend(Object, "nextEventMatchingMask:untilDate:inMode:dequeue:", .{
+            event_mask,
+            distant_past,
+            NSDefaultRunLoopMode,
+            true,
+        });
+        if (@intFromPtr(event.value) != 0) {
+            app.msgSend(void, "sendEvent:", .{event});
+            app.msgSend(void, "updateWindows", .{});
         }
-        while (app.getNextEvent()) |event| {
-            switch (event) {
-                .key_down => |key_code| {
-                    if (key_code == .escape) {
-                        running = false;
-                    } else {
-                        std.debug.print("{s}\n", .{@tagName(key_code)});
-                    }
-                },
-                else => {},
-            }
-        }
-        app.updateWindows();
-        game_code.update_and_render_fn();
+
+        // rect = content_view.msgSend(ns.Rect, "frame", .{});
     }
 }
