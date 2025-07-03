@@ -1,11 +1,12 @@
 const std = @import("std");
+
 pub const c_OffscreenBuffer = extern struct {
     memory: [*]u8,
     width: u32,
     height: u32,
 };
 
-pub const UpdateAndRenderFn = fn () callconv(.c) void;
+pub const UpdateAndRenderFn = fn (c_buffer: c_OffscreenBuffer) callconv(.c) void;
 
 fn c_OffscreenBufferSize(buffer: c_OffscreenBuffer) u32 {
     return buffer.width * buffer.height * OffscreenBuffer.elements_per_pixel * ((OffscreenBuffer.bits_per_element + 7) / 8);
@@ -45,4 +46,4 @@ pub const OffscreenBuffer = struct {
     }
 };
 
-pub fn updateAndRenderStub() callconv(.c) void {}
+pub fn updateAndRenderStub(_: c_OffscreenBuffer) callconv(.c) void {}
