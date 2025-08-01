@@ -5,17 +5,14 @@
     <key>CFBundleName</key>
     <string>{s}</string>
 
-    <key>CFBundleDisplayName</key>
+    <key>CFBundleIdentifier</key>
     <string>{s}</string>
 
-    <key>CFBundleIdentifier</key>
-    <string>com.example.{s}</string>
-
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>{s}</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>{s}</string>
 
     <key>CFBundleExecutable</key>
     <string>{s}</string>

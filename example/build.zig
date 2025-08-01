@@ -6,17 +6,25 @@ pub fn build(b: *std.Build) !void {
 
     const optimize = b.standardOptimizeOption(.{});
 
+    const lib_name: []const u8 = "my-game";
+
+    const platform_layer_dep = b.dependency("platform_layer", .{
+        .target = target,
+        .optimize = optimize,
+        .lib_name = lib_name,
+        .enable_hot_reload = true,
+    });
+
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const platform_layer_dep = b.dependency("platform_layer", .{});
     lib_mod.addImport("glue", platform_layer_dep.module("glue"));
 
     const lib = b.addLibrary(.{
-        .name = "my-game",
+        .name = lib_name,
         .root_module = lib_mod,
         .linkage = .dynamic,
     });
@@ -26,28 +34,18 @@ pub fn build(b: *std.Build) !void {
         .root_module = platform_layer_dep.module("exe_mod"),
     });
 
-    const platform_options: pl.PlatformOptions = .{
-        .macos = .{
-            .bundle_name = "example",
-            .exe_name = exe.name,
+    try pl.install(b, exe, lib, .{
+        .target = target,
+        .optimize = optimize,
+        .mac_os = .{
+            .bundle_identifier = "com.example.my-game",
+            .bundle_name = "Example",
         },
-    };
-
-    const install_exe = try pl.installArtifact(b, exe, target, optimize, platform_options);
-    const install_lib = try pl.installArtifact(b, lib, target, optimize, platform_options);
-    const install_files = try pl.installPlatformFiles(b, target, optimize, platform_options);
-
-    const install_step = b.getInstallStep();
-    install_step.dependOn(&install_exe.step);
-    install_step.dependOn(&install_lib.step);
-    install_step.dependOn(&install_files.step);
+    });
 
     const run_cmd = b.addRunArtifact(exe);
 
     run_cmd.step.dependOn(b.getInstallStep());
-
-    run_cmd.addArg("--game-lib");
-    run_cmd.addArtifactArg(lib);
 
     if (b.args) |args| {
         run_cmd.addArgs(args);

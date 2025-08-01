@@ -1,65 +1,132 @@
 const std = @import("std");
 const glue = @import("glue");
 
+const options = @import("options");
+
+const objc = @import("objc");
+
+const Object = objc.Object;
+const nil: objc.c.id = @ptrFromInt(0);
+
 const GameCode = @This();
 
-allocator: std.mem.Allocator,
-handle: *anyopaque,
+handle: std.DynLib,
+
+init_game_memory_fn: *const glue.IntiGameMemoryFn,
 update_and_render_fn: *const glue.UpdateAndRenderFn,
-lib_path: []const u8,
-tmp_path: []const u8,
-last_change_time: i128 = 0,
 
-pub fn load(allocator: std.mem.Allocator, lib_path: []const u8) !GameCode {
-    const copied_lib_path = try copyLib(allocator, lib_path);
-    const c_path = try std.posix.toPosixPath(copied_lib_path);
+last_change_time: i128,
 
-    const handle = std.c.dlopen(&c_path, .{ .NOW = true, .LOCAL = true }) orelse return error.FailedToLoadDLL;
-    std.debug.print("loading game code\n", .{});
-    const func = std.c.dlsym(handle, "updateAndRender") orelse return error.FailedToLoadLibFunc;
+pub const LibPaths = struct {
+    installed: []const u8,
+    hot: ?[]const u8,
+
+    pub fn init(allocator: std.mem.Allocator) !LibPaths {
+        const fw_path_obj = objc.getClass("NSBundle").?.msgSend(
+            Object,
+            "mainBundle",
+            .{},
+        ).msgSend(Object, "privateFrameworksPath", .{});
+
+        std.debug.assert(fw_path_obj.value != nil);
+        const fw_path = std.mem.span(fw_path_obj.msgSend([*:0]const u8, "UTF8String", .{}));
+
+        var fw_dir = try std.fs.openDirAbsolute(fw_path, .{});
+        defer fw_dir.close();
+
+        var iter = fw_dir.iterate();
+        const full_name = while (try iter.next()) |entry| {
+            if (entry.kind == .file) {
+                if (std.mem.containsAtLeast(u8, entry.name, 1, options.lib_name)) {
+                    break entry.name;
+                }
+            }
+        } else return error.GameLibNotFound;
+        const installed = try std.fs.path.join(allocator, &.{ fw_path, full_name });
+
+        const hot = if (options.hot_reload) blk: {
+            const bundle_identifier = std.mem.span(
+                objc.getClass("NSBundle").?.msgSend(Object, "mainBundle", .{}).msgSend(
+                    Object,
+                    "bundleIdentifier",
+                    .{},
+                ).msgSend(
+                    [*:0]const u8,
+                    "UTF8String",
+                    .{},
+                ),
+            );
+
+            const app_data_path: []const u8 = try std.fs.getAppDataDir(allocator, bundle_identifier);
+            var app_data_dir = try std.fs.openDirAbsolute(app_data_path, .{});
+            defer app_data_dir.close();
+            try app_data_dir.makePath("HotReload");
+
+            const hot_path = try std.fs.path.join(allocator, &.{ app_data_path, "HotReload" });
+            break :blk try std.fs.path.join(allocator, &.{ hot_path, full_name });
+        } else null;
+
+        return .{
+            .installed = installed,
+            .hot = hot,
+        };
+    }
+
+    pub fn deinit(self: LibPaths, allocator: std.mem.Allocator) void {
+        allocator.free(self.installed);
+        if (self.hot) |hot| allocator.free(hot);
+    }
+};
+
+pub fn updateAndRender(self: *const GameCode, buffer: *const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory, delta_time_s: f64) void {
+    self.update_and_render_fn(buffer, game_memory, delta_time_s);
+}
+
+pub fn initGameMemory(self: *const GameCode, game_memory: *const glue.GameMemory) void {
+    self.init_game_memory_fn(game_memory);
+}
+
+pub fn load(lib_paths: LibPaths) !GameCode {
+    var handle = if (lib_paths.hot) |hot| blk: {
+        std.fs.copyFileAbsolute(lib_paths.installed, hot, .{}) catch |err| {
+            std.debug.print("Failed to copy game lib from {s} to {s}: {s}\n", .{ lib_paths.installed, hot, @errorName(err) });
+            return err;
+        };
+        break :blk try std.DynLib.open(hot);
+    } else try std.DynLib.open(lib_paths.installed);
+
+    errdefer handle.close();
+
+    const init_game_memory_fn = handle.lookup(*const glue.IntiGameMemoryFn, "initGameMemory") orelse return error.FailedToLoadLibFunc;
+    const update_and_render_fn = handle.lookup(*const glue.UpdateAndRenderFn, "updateAndRender") orelse return error.FailedToLoadLibFunc;
 
     return .{
-        .allocator = allocator,
         .handle = handle,
-        .update_and_render_fn = @alignCast(@ptrCast(func)),
-        .tmp_path = copied_lib_path,
-        .lib_path = lib_path,
-        .last_change_time = try getLastChangedTime(lib_path),
+
+        .init_game_memory_fn = @alignCast(@ptrCast(init_game_memory_fn)),
+        .update_and_render_fn = @alignCast(@ptrCast(update_and_render_fn)),
+
+        .last_change_time = try getLastChangedTime(lib_paths.installed),
     };
 }
-pub fn unload(self: *GameCode) !void {
-    if (std.c.dlclose(self.handle) != 0) {
-        std.debug.print("failed to  unload dll\n", .{});
-    }
-    std.debug.print("new path:{s}\n", .{self.tmp_path});
-    try std.fs.deleteFileAbsolute(self.tmp_path);
-    self.allocator.free(self.tmp_path);
-    self.tmp_path = "";
-    self.lib_path = "";
+pub fn unload(self: *GameCode) void {
+    self.handle.close();
     self.update_and_render_fn = glue.updateAndRenderStub;
+    self.init_game_memory_fn = glue.IntiGameMemoryStub;
     self.last_change_time = 0;
 }
 
-pub fn getLastChangedTime(lib_path: []const u8) !i128 {
+pub fn isOutOfdate(self: *const GameCode) !bool {
+    const current_time = try getLastChangedTime(self.lib_path);
+    if (current_time != self.last_change_time) {
+        std.debug.assert(current_time > self.last_change_time);
+        return true;
+    }
+    return false;
+}
+
+fn getLastChangedTime(lib_path: []const u8) !i128 {
     const lib_file = try std.fs.openFileAbsolute(lib_path, .{ .mode = .read_only });
     defer lib_file.close();
     return (try lib_file.stat()).mtime;
-}
-
-fn copyLib(allocator: std.mem.Allocator, lib_path: []const u8) ![]const u8 {
-    var cwd = try std.fs.cwd().openDir(".", .{});
-    defer cwd.close();
-    const exe_dir_path = try std.fs.selfExeDirPathAlloc(allocator);
-    defer allocator.free(exe_dir_path);
-    const new_file_name = try std.fmt.allocPrint(allocator, "lib-{}.dylib", .{std.time.timestamp()});
-    defer allocator.free(new_file_name);
-    const new_path = try std.fs.path.join(allocator, &.{ exe_dir_path, new_file_name });
-    std.debug.print("is absolute: {}\n", .{std.fs.path.isAbsolute(new_path)});
-
-    const abs_lib_path = if (std.fs.path.isAbsolute(lib_path)) lib_path else try cwd.realpathAlloc(
-        allocator,
-        lib_path,
-    );
-    try std.fs.copyFileAbsolute(abs_lib_path, new_path, .{});
-    return new_path;
 }

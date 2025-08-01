@@ -1,49 +1,21 @@
 const std = @import("std");
 
-pub const c_OffscreenBuffer = extern struct {
-    memory: [*]u8,
+pub const OffscreenBufferBGRA8 = extern struct {
+    memory: [*]u32,
     width: u32,
     height: u32,
 };
 
-pub const UpdateAndRenderFn = fn (c_buffer: c_OffscreenBuffer) callconv(.c) void;
+pub const IntiGameMemoryFn = fn (game_memory: *const GameMemory) callconv(.c) void;
+pub const UpdateAndRenderFn = fn (c_buffer: *const OffscreenBufferBGRA8, game_memory: *const GameMemory, delta_time_s: f64) callconv(.c) void;
 
-fn c_OffscreenBufferSize(buffer: c_OffscreenBuffer) u32 {
-    return buffer.width * buffer.height * OffscreenBuffer.elements_per_pixel * ((OffscreenBuffer.bits_per_element + 7) / 8);
-}
-
-pub const OffscreenBuffer = struct {
-    pub const bits_per_element = 8;
-    pub const elements_per_pixel = 4;
-    pub const bytes_per_pixel = elements_per_pixel * ((bits_per_element + 7) / 8);
-
-    memory: []u8,
-    width: u32,
-    height: u32,
-
-    pub fn fromC(c_buffer: c_OffscreenBuffer) OffscreenBuffer {
-        return .{
-            .memory = c_buffer.memory[0..c_OffscreenBufferSize(c_buffer)],
-            .width = c_buffer.width,
-            .height = c_buffer.height,
-        };
-    }
-
-    pub fn ToC(self: OffscreenBuffer) c_OffscreenBuffer {
-        return .{
-            .memory = self.memory.ptr,
-            .width = self.width,
-            .height = self.height,
-        };
-    }
-
-    pub fn size(self: OffscreenBuffer) u32 {
-        return self.width * self.height * bytes_per_pixel;
-    }
-
-    pub fn pitch(self: OffscreenBuffer) u32 {
-        return self.width * bytes_per_pixel;
-    }
+pub const GameMemory = extern struct {
+    // pub const permanent_storage_size: u64 = 64 * 1024 * 1024; // 64 MiB
+    pub const permanent_storage_size: u64 = @sizeOf(GameMemory);
+    // pub const transient_storage_size: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB
+    permanent_storage: *anyopaque,
+    // transient_storage: *anyopaque,
 };
 
-pub fn updateAndRenderStub(_: c_OffscreenBuffer) callconv(.c) void {}
+pub fn updateAndRenderStub(_: *const OffscreenBufferBGRA8, _: *const GameMemory, _: f64) callconv(.c) void {}
+pub fn IntiGameMemoryStub(_: *const GameMemory) callconv(.c) void {}

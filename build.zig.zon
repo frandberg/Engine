@@ -12,7 +12,9 @@
             .url = "https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz",
 
             .hash = "zig_objc-0.0.0-Ir_SpwsPAQBJgi9YRm2ubJMfdoysSq5gKpsIj3izQ8Zk",
-            .lazy = true,
+        },
+        .cocoa = .{
+            .path = "Cocoa",
         },
     },
     .paths = .{

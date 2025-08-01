@@ -4,17 +4,18 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const core_grpahics = b.addModule("CoreGraphics", .{
-        .root_source_file = b.path("src/MacOS/CoreGraphics/CoreGraphics.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    const lib_name: []const u8 = b.option([]const u8, "lib_name", "name of the dynamic game lib to be used for loading at runtime") orelse return error.NoLibName;
 
-    const cocoa = b.addModule("Cocoa", .{
-        .root_source_file = b.path("src/MacOS/Cocoa/Cocoa.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    const hot_reload: bool = b.option(
+        bool,
+        "enable_hot_reload",
+        "Enable hot reloading of the game code",
+    ) orelse false;
+
+    const options = b.addOptions();
+
+    options.addOption([]const u8, "lib_name", lib_name);
+    options.addOption(bool, "hot_reload", hot_reload);
 
     const glue = b.addModule("glue", .{
         .root_source_file = b.path("src/glue.zig"),
@@ -31,94 +32,37 @@ pub fn build(b: *std.Build) !void {
             .module = glue,
         }},
     });
-
-    cocoa.addImport("CoreGraphics", core_grpahics);
-    exe_mod.addImport("CoreGraphics", core_grpahics);
-    exe_mod.addImport("Cocoa", cocoa);
+    exe_mod.addImport("options", options.createModule());
 
     if (target.result.os.tag == .macos) {
-        if (b.lazyDependency("objc", .{})) |dep| {
-            exe_mod.addImport("objc", dep.module("objc"));
-            cocoa.addImport("objc", dep.module("objc"));
-        }
+        const objc_dep = b.dependency("objc", .{});
+        exe_mod.addImport("objc", objc_dep.module("objc"));
         exe_mod.linkFramework("Appkit", .{});
         exe_mod.linkFramework("Metal", .{});
+        exe_mod.linkFramework("CoreFoundation", .{});
     } else {
         return error.UnsuportedOS;
     }
 }
 
-pub const PlatformOptions = struct {
-    macos: MacOSOptions,
-    pub const MacOSOptions = struct {
+pub const Options = struct {
+    mac_os: MacOS,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+
+    const MacOS = struct {
+        bundle_identifier: []const u8,
         bundle_name: []const u8,
-        exe_name: []const u8,
+        bundle_short_version_string: []const u8 = "1.0",
+        bundle_version: []const u8 = "1.0",
     };
 };
 
-pub fn installPlatformFiles(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    platform_options: PlatformOptions,
-) !*std.Build.Step.InstallFile {
-    if (target.result.os.tag == .macos) {
-        const bundle_name = platform_options.macos.bundle_name;
-        const exe_name = platform_options.macos.exe_name;
-        const info_plist_str = try std.fmt.allocPrint(
-            b.allocator,
-            @embedFile("MacOS/Info.plist"),
-            .{ bundle_name, bundle_name, bundle_name, exe_name },
-        );
+pub fn install(b: *std.Build, exe: *std.Build.Step.Compile, lib: *std.Build.Step.Compile, options: Options) !void {
+    const target = options.target;
+    const optimize = options.optimize;
 
-        const prefix = try installPrefix(b, target, optimize);
-        const info_plist_dest_path = try std.fmt.allocPrint(
-            b.allocator,
-            "{s}{s}.app/Contents/Info.plist",
-            .{ prefix, bundle_name },
-        );
-
-        const wf = b.addWriteFile("Info.plist", info_plist_str);
-        const install_file = b.addInstallFile(
-            try wf.getDirectory().join(b.allocator, "Info.plist"),
-            info_plist_dest_path,
-        );
-        install_file.step.dependOn(&wf.step);
-        return install_file;
-    } else return error.UnsuportedOS;
-}
-
-pub fn installArtifact(
-    b: *std.Build,
-    compile: *std.Build.Step.Compile,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    platform_options: PlatformOptions,
-) !*std.Build.Step.InstallArtifact {
-    const prefix = try installPrefix(b, target, optimize);
-    const install_dir: std.Build.InstallDir = if (target.result.os.tag == .macos) blk: {
-        const bundle_name = platform_options.macos.bundle_name;
-        const sub_path = if (compile.kind == .exe)
-            try std.fmt.allocPrint(b.allocator, "{s}.app/Contents/MacOS/", .{bundle_name})
-        else if (compile.kind == .lib)
-            try std.fmt.allocPrint(b.allocator, "{s}.app/Contents/Frameworks/", .{bundle_name})
-        else
-            return error.UnsuportedArtifact;
-
-        const path = try std.fs.path.join(b.allocator, &.{ prefix, sub_path });
-        break :blk .{ .custom = path };
-    } else return error.UnsuportedOS;
-
-    return b.addInstallArtifact(compile, .{ .dest_dir = .{
-        .override = install_dir,
-    } });
-}
-fn installPrefix(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) ![]const u8 {
-    return std.fmt.allocPrint(
+    const target_path = try std.fmt.allocPrint(
         b.allocator,
         "{s}-{s}/{s}/",
         .{
@@ -127,4 +71,47 @@ fn installPrefix(
             @tagName(optimize),
         },
     );
+
+    switch (target.result.os.tag) {
+        .macos => {
+            const exe_install_dir: std.Build.InstallDir = .{
+                .custom = try std.fmt.allocPrint(b.allocator, "bundle/{s}/{s}.app/Contents/MacOS/", .{ target_path, options.mac_os.bundle_name }),
+            };
+
+            const lib_install_dir: std.Build.InstallDir = .{
+                .custom = try std.fmt.allocPrint(b.allocator, "bundle/{s}/{s}.app/Contents/Frameworks/", .{ target_path, options.mac_os.bundle_name }),
+            };
+            const info_plist_install_dir: std.Build.InstallDir = .{
+                .custom = try std.fmt.allocPrint(b.allocator, "bundle/{s}/{s}.app/Contents/", .{ target_path, options.mac_os.bundle_name }),
+            };
+
+            const write_info_plist = b.addWriteFile("Info.plist", try std.fmt.allocPrint(
+                b.allocator,
+                @embedFile("MacOS/InfoPlist-template.txt"),
+                .{
+                    options.mac_os.bundle_name,
+                    options.mac_os.bundle_identifier,
+                    options.mac_os.bundle_version,
+                    options.mac_os.bundle_short_version_string,
+                    exe.name,
+                },
+            ));
+
+            const install_info_plist = b.addInstallFileWithDir(
+                try write_info_plist.getDirectory().join(b.allocator, "Info.plist"),
+                info_plist_install_dir,
+                "Info.plist",
+            );
+
+            const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = exe_install_dir } });
+            const install_lib = b.addInstallArtifact(lib, .{ .dest_dir = .{ .override = lib_install_dir } });
+
+            const install_step = b.getInstallStep();
+
+            install_step.dependOn(&install_info_plist.step);
+            install_step.dependOn(&install_exe.step);
+            install_step.dependOn(&install_lib.step);
+        },
+        else => std.debug.panic("Unsupported OS {}", .{target.result.os.tag}),
+    }
 }
