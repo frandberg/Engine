@@ -1,11 +1,11 @@
 const std = @import("std");
 const objc = @import("objc");
 
-const FramebufferPool = @import("FrameBufferPool.zig");
+const FramebufferPool = @import("FramebufferPool.zig");
 const Framebuffer = FramebufferPool.Framebuffer;
 
 const Object = objc.Object;
-const nil = objc.c.id(@ptrFromInt(0));
+const nil: objc.c.id = @ptrFromInt(0);
 
 extern fn MTLCreateSystemDefaultDevice() objc.c.id;
 
@@ -52,12 +52,12 @@ pub fn deinit(self: *MetalContext) void {
 
 pub fn blitAndPresentFramebuffer(
     self: *const MetalContext,
-    framebuffer: *const Framebuffer,
+    framebuffer_pool: *const FramebufferPool,
     framebuffer_index: usize,
-) ?void {
+) void {
     const drawable = self.layer.msgSend(Object, "nextDrawable", .{});
     if (drawable.value == nil) {
-        return null;
+        return;
     }
 
     const cmd_buffer: Object = self.command_queue.msgSend(
@@ -72,7 +72,7 @@ pub fn blitAndPresentFramebuffer(
         .{},
     );
 
-    blit(cmd_buffer, dst_texture, framebuffer, framebuffer_index);
+    blit(cmd_buffer, dst_texture, framebuffer_pool, framebuffer_index);
 
     cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
     cmd_buffer.msgSend(void, "commit", .{});
@@ -86,14 +86,16 @@ fn blit(
 ) void {
     const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
 
+    const framebuffer = framebuffer_pool.framebuffers[framebuffer_index];
+
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{
         framebuffer_pool.mtl_buffer.value,
         framebuffer_pool.bufferOffset(framebuffer_index),
-        framebuffer_pool.bufferPitch(),
-        framebuffer_pool.bufferSize(),
+        framebuffer.pitch(),
+        framebuffer.size(),
         MTLSize{
-            .width = framebuffer_pool.width,
-            .height = framebuffer_pool.height,
+            .width = framebuffer.width,
+            .height = framebuffer.height,
             .depth = 1,
         },
         dst_texture,

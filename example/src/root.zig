@@ -10,20 +10,21 @@ pub export fn initGameMemory(game_memory: *const glue.GameMemory) callconv(.c) v
     game_state.* = .{};
 }
 
-pub export fn updateAndRender(buffer: *const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory) void {
+pub export fn updateAndRender(buffer: ?*const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory) void {
     const game_state: *GameState = @alignCast(@ptrCast(game_memory.permanent_storage));
-
-    drawRectangle(buffer, .{
-        .x = 0.5,
-        .y = 0.5,
-        .width = 0.5,
-        .height = 0.5,
-    }, .{
-        .r = 1.0,
-        .g = 0.0,
-        .b = 0.0,
-        .a = 1.0,
-    });
+    if (buffer) |buff| {
+        drawRectangle(buff, .{
+            .x = 0.5,
+            .y = 0.5,
+            .width = 0.5,
+            .height = 0.5,
+        }, .{
+            .r = 1.0,
+            .g = 0.0,
+            .b = 0.0,
+            .a = 1.0,
+        });
+    }
 
     game_state.frame += 1;
 }

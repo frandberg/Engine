@@ -78,7 +78,7 @@ pub const LibPaths = struct {
     }
 };
 
-pub fn updateAndRender(self: *const GameCode, buffer: *const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory, delta_time_s: f64) void {
+pub fn updateAndRender(self: *const GameCode, buffer: ?*const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory, delta_time_s: f64) void {
     self.update_and_render_fn(buffer, game_memory, delta_time_s);
 }
 

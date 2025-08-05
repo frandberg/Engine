@@ -8,7 +8,7 @@ const c = @cImport({
 });
 
 const Object = objc.Object;
-const nil = objc.c.id(@ptrFromInt(0));
+const nil: objc.c.id = @ptrFromInt(0);
 
 extern const NSDefaultRunLoopMode: objc.c.id;
 
@@ -18,6 +18,7 @@ const GameCode = @import("GameCode.zig");
 const MetalContext = @import("MetalContext.zig");
 const FramebufferPool = @import("FramebufferPool.zig");
 const DeviceInfo = @import("DeviceInfo.zig");
+const Delegate = @import("Delegate.zig");
 const GameMemory = glue.GameMemory;
 const Time = @import("Time.zig");
 
@@ -64,14 +65,14 @@ pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, 
     app.mtl_context = MetalContext.init();
 
     app.framebuffer_pool = try FramebufferPool.init(allocator, app.mtl_context.device, .{
-        .width = 600,
-        .height = 400,
+        .width = window_width,
+        .height = window_height,
         .max_width = app.device_info.display_width,
         .max_height = app.device_info.display_height,
     });
     errdefer app.framebuffer_pool.deinit();
 
-    app.delegate = Application.Delegate.init(&app.running);
+    app.delegate = Delegate.init(&app.running);
     errdefer app.delegate.msgSend(void, "release", .{});
 
     app.NSApp = objc.getClass("NSApplication").?.msgSend(Object, "sharedApplication", .{});
@@ -84,8 +85,8 @@ pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, 
     const window_rect = c.CGRectMake(
         0, // x
         0, // y
-        @as(c.CGFloat, window_width), // width
-        @as(c.CGFloat, window_height), // height
+        @as(c.CGFloat, @floatFromInt(window_width)), // width
+        @as(c.CGFloat, @floatFromInt(window_height)), // height
     );
 
     app.NSWindow = objc.getClass("NSWindow").?.msgSend(
@@ -104,12 +105,12 @@ pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, 
     );
     errdefer app.NSWindow.msgSend(void, "release", .{});
     app.NSWindow.msgSend(void, "setDelegate:", .{app.delegate.value});
-    app.NSWindow.msgSend(void, "makeKeyAndOrderFront:", nil);
+    app.NSWindow.msgSend(void, "makeKeyAndOrderFront:", .{nil});
 
-    app.msgSend(void, "finishLaunching", .{});
-    app.msgSend(void, "activate", .{});
+    app.NSApp.msgSend(void, "finishLaunching", .{});
+    app.NSApp.msgSend(void, "activate", .{});
 
-    const view: Object = app.NSwindow.msgSend(Object, "contentView", .{});
+    const view: Object = app.NSWindow.msgSend(Object, "contentView", .{});
 
     view.msgSend(void, "setWantsLayer:", .{true});
     view.msgSend(void, "setLayer:", .{app.mtl_context.layer.value});
@@ -124,11 +125,9 @@ pub fn deinit(self: *Application, allocator: std.mem.Allocator) void {
     self.framebuffer_pool.deinit();
     self.mtl_context.deinit();
 
-    allocator.free(self.game_memory.permanent_storage);
-    allocator.free(self.game_memory.transient_storage);
-    allocator.free(self.framebuffers_bakcking_mem);
+    self.game_memory.deinit(allocator);
 }
-pub fn run(self: *Application) void {
+pub fn run(self: *Application) !void {
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{self});
     defer game_thread.join();
     self.cocoaLoop();
@@ -137,7 +136,7 @@ pub fn run(self: *Application) void {
 const delta_time_s: f64 = 1.0 / 60.0;
 
 fn gameLoop(self: *Application) void {
-    const timer = Time.RepeatingTimer.initAndStart(
+    var timer = Time.RepeatingTimer.initAndStart(
         &self.time,
         delta_time_s,
     );
@@ -155,12 +154,12 @@ fn gameLoop(self: *Application) void {
 
         if (framebuffer_index) |fb_index| {
             game_code.updateAndRender(
-                framebuffers[fb_index],
+                &framebuffers[fb_index].glueBuffer(),
                 &self.game_memory,
                 delta_time_s,
             );
             framebuffers[fb_index].state.store(.ready, .seq_cst);
-            framebuffer_pool.latest_ready_index.store(fb_index, .seq_cst);
+            framebuffer_pool.latest_ready_index.store(@intCast(fb_index), .seq_cst);
         } else {
             game_code.updateAndRender(
                 null,
@@ -179,18 +178,18 @@ fn cocoaLoop(self: *Application) void {
 
     while (self.running.load(.seq_cst)) {
         if (nextEvent(self.NSApp, event_timeout_seconds)) |event| {
-            self.app.msgSend(void, "sendEvent:", .{event});
-            self.app.msgSend(void, "updateWindows", .{});
+            self.NSApp.msgSend(void, "sendEvent:", .{event});
+            self.NSApp.msgSend(void, "updateWindows", .{});
         }
         const frambuffer_index = framebuffer_pool.latest_ready_index.load(.seq_cst);
         if (frambuffer_index == -1) continue;
-        const framebuffer = framebuffer_pool.framebuffers[frambuffer_index];
+        const framebuffer = &framebuffer_pool.framebuffers[@intCast(frambuffer_index)];
 
-        if (framebuffer.state.cmpxchgStrong(.ready, .in_use, .seq_cst)) |old_state| {
+        if (framebuffer.state.cmpxchgStrong(.ready, .in_use, .seq_cst, .seq_cst)) |old_state| {
             if (old_state == .ready) {
-                mtl_context.blitAndPresentFramebuffer(framebuffer_pool, frambuffer_index);
+                mtl_context.blitAndPresentFramebuffer(framebuffer_pool, @intCast(frambuffer_index));
 
-                framebuffer_pool.latest_ready_index.cmpxchgStrong(frambuffer_index, -1, .seq_cst, .seq_cst);
+                _ = framebuffer_pool.latest_ready_index.cmpxchgStrong(frambuffer_index, -1, .seq_cst, .seq_cst);
             }
 
             framebuffer.state.store(.free, .seq_cst);
