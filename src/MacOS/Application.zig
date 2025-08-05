@@ -154,8 +154,7 @@ pub fn run(self: *Application) !void {
     self.cocoaLoop();
 }
 
-const delta_time_s: f64 = 1.0 / 60.0; // 60 FPS
-fn gameLoop(self: *Application) void {
+fn gameLoop(self: *Application, delta_time_s: f64) void {
     var timer = Time.RepeatingTimer.initAndStart(
         &self.time,
         delta_time_s,
@@ -191,7 +190,7 @@ fn gameLoop(self: *Application) void {
     }
 }
 
-const event_timeout_seconds: f64 = 0.0005;
+const event_timeout_seconds: f64 = 0.001;
 fn cocoaLoop(self: *Application) void {
     const framebuffer_pool = &self.framebuffer_pool;
     const mtl_context = &self.mtl_context;
@@ -227,7 +226,7 @@ fn nextEvent(app: objc.Object, timeout_seconds: f64) ?objc.c.id {
         mask,
         until_date,
         NSDefaultRunLoopMode,
-        true,
+        @as(i8, 1),
     });
 
     if (event != nil) {

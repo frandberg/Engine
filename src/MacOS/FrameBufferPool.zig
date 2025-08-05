@@ -88,8 +88,9 @@ pub fn init(allocaor: std.mem.Allocator, device: Object, info: Info) !Self {
     };
 }
 
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.mtl_buffer.msgSend(void, "release", .{});
+    allocator.free(self.backing_memory);
 }
 
 pub fn unitsPerBuffer(self: *const Self) usize {
