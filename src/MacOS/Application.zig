@@ -19,6 +19,7 @@ const MetalContext = @import("MetalContext.zig");
 const FramebufferPool = @import("FramebufferPool.zig");
 const DeviceInfo = @import("DeviceInfo.zig");
 const GameMemory = glue.GameMemory;
+const Time = @import("Time.zig");
 
 const Application = @This();
 
@@ -28,10 +29,14 @@ const AtomicBool = std.atomic.Value(bool);
 game_code: GameCode,
 game_memory: GameMemory,
 
+lib_paths: GameCode.LibPaths,
+
 mtl_context: MetalContext,
 framebuffer_pool: FramebufferPool,
 
-running: AtomicBool = false,
+time: Time,
+
+running: AtomicBool = AtomicBool.init(false),
 
 NSApp: Object,
 NSWindow: Object,
@@ -42,29 +47,28 @@ device_info: DeviceInfo,
 pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, window_height: u32) !void {
     const game_memory_permanent = try allocator.alignedAlloc(u8, std.heap.pageSize(), glue.GameMemory.permanent_storage_size);
     errdefer allocator.free(game_memory_permanent);
-    const game_memory_transient = try allocator.alignedAlloc(u8, std.heap.pageSize(), glue.GameMemory.transient_storage_size);
-    errdefer allocator.free(game_memory_transient);
+
+    app.time = Time.init();
 
     app.game_memory = .{
         .permanent_storage = game_memory_permanent.ptr,
-        .transient_storage = game_memory_transient.ptr,
     };
 
     app.device_info = DeviceInfo.init();
-    app.framebuffers_bakcking_mem = try allocator.alignedAlloc(u32, std.heap.pageSize(), DeviceInfo.display_width * DeviceInfo.display_height);
-    errdefer allocator.free(app.framebuffers_bakcking_mem);
 
-    app.game_code = try GameCode.load(allocator);
+    app.lib_paths = try GameCode.LibPaths.init(allocator);
+
+    app.game_code = try GameCode.load(app.lib_paths);
     errdefer app.game_code.unload();
 
     app.mtl_context = MetalContext.init();
 
-    app.framebuffer_pool = try FramebufferPool.init(
-        app.mtl_context.device,
-        app.framebuffers_bakcking_mem,
-        window_width,
-        window_height,
-    );
+    app.framebuffer_pool = try FramebufferPool.init(allocator, app.mtl_context.device, .{
+        .width = 600,
+        .height = 400,
+        .max_width = app.device_info.display_width,
+        .max_height = app.device_info.display_height,
+    });
     errdefer app.framebuffer_pool.deinit();
 
     app.delegate = Application.Delegate.init(&app.running);
@@ -125,8 +129,6 @@ pub fn deinit(self: *Application, allocator: std.mem.Allocator) void {
     allocator.free(self.framebuffers_bakcking_mem);
 }
 pub fn run(self: *Application) void {
-    self.running = true;
-
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{self});
     defer game_thread.join();
     self.cocoaLoop();
@@ -135,16 +137,38 @@ pub fn run(self: *Application) void {
 const delta_time_s: f64 = 1.0 / 60.0;
 
 fn gameLoop(self: *Application) void {
-    while (self.running.load(.seq_cst)) {
-        const start_time = c.mach_absolute_time();
-        self.game_code.update(self.game_memory, delta_time_s);
-        const end_time = c.mach_absolute_time();
+    const timer = Time.RepeatingTimer.initAndStart(
+        &self.time,
+        delta_time_s,
+    );
 
-        const elapsed_ns = c.mach_absolute_to_nanoseconds(end_time - start_time);
-        const sleep_ns = @as(u64, (delta_time_s * 1_000_000_000.0) - elapsed_ns);
-        if (sleep_ns > 0) {
-            std.time.sleep(std.time.ns(sleep_ns));
+    const framebuffer_pool = &self.framebuffer_pool;
+    const framebuffers = &framebuffer_pool.framebuffers;
+    const game_code = &self.game_code;
+
+    while (self.running.load(.seq_cst)) {
+        const framebuffer_index = for (framebuffers, 0..) |framebuffer, i| {
+            if (framebuffer.state.load(.seq_cst) == .free) {
+                break i;
+            }
+        } else null;
+
+        if (framebuffer_index) |fb_index| {
+            game_code.updateAndRender(
+                framebuffers[fb_index],
+                &self.game_memory,
+                delta_time_s,
+            );
+            framebuffers[fb_index].state.store(.ready, .seq_cst);
+            framebuffer_pool.latest_ready_index.store(fb_index, .seq_cst);
+        } else {
+            game_code.updateAndRender(
+                null,
+                &self.game_memory,
+                delta_time_s,
+            );
         }
+        timer.wait();
     }
 }
 

@@ -53,6 +53,7 @@ pub fn deinit(self: *MetalContext) void {
 pub fn blitAndPresentFramebuffer(
     self: *const MetalContext,
     framebuffer: *const Framebuffer,
+    framebuffer_index: usize,
 ) ?void {
     const drawable = self.layer.msgSend(Object, "nextDrawable", .{});
     if (drawable.value == nil) {
@@ -81,6 +82,7 @@ fn blit(
     cmd_buffer: Object,
     dst_texture: Object,
     framebuffer_pool: *const FramebufferPool,
+    framebuffer_index: usize,
 ) void {
     const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
 

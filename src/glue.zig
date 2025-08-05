@@ -10,11 +10,8 @@ pub const IntiGameMemoryFn = fn (game_memory: *const GameMemory) callconv(.c) vo
 pub const UpdateAndRenderFn = fn (c_buffer: *const OffscreenBufferBGRA8, game_memory: *const GameMemory, delta_time_s: f64) callconv(.c) void;
 
 pub const GameMemory = extern struct {
-    // pub const permanent_storage_size: u64 = 64 * 1024 * 1024; // 64 MiB
-    pub const permanent_storage_size: u64 = @sizeOf(GameMemory);
-    // pub const transient_storage_size: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB
+    pub const permanent_storage_size: u64 = 64 * 1024 * 1024; // 64 MiB
     permanent_storage: *anyopaque,
-    // transient_storage: *anyopaque,
 };
 
 pub fn updateAndRenderStub(_: *const OffscreenBufferBGRA8, _: *const GameMemory, _: f64) callconv(.c) void {}
