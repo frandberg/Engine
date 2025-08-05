@@ -58,11 +58,13 @@ pub const LibPaths = struct {
             );
 
             const app_data_path: []const u8 = try std.fs.getAppDataDir(allocator, bundle_identifier);
+            defer allocator.free(app_data_path);
             var app_data_dir = try std.fs.openDirAbsolute(app_data_path, .{});
             defer app_data_dir.close();
             try app_data_dir.makePath("HotReload");
 
             const hot_path = try std.fs.path.join(allocator, &.{ app_data_path, "HotReload" });
+            defer allocator.free(hot_path);
             break :blk try std.fs.path.join(allocator, &.{ hot_path, full_name });
         } else null;
 
