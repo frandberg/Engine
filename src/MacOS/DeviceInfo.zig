@@ -5,13 +5,15 @@ const c = @cImport({
 });
 
 const Object = objc.Object;
+const nil: objc.c.id = @ptrFromInt(0);
 
 display_width: u32,
 display_height: u32,
 
 pub fn init() @This() {
     const main_screen = objc.getClass("NSScreen").?.msgSend(Object, "mainScreen", .{});
-    const frame = main_screen.msgSend(c.CGRect, "convertFromBacking:", .{main_screen.msgSend(c.CGRect, "frame", .{})});
+    std.debug.assert(main_screen.value != nil);
+    const frame = main_screen.msgSend(c.CGRect, "convertRectToBacking:", .{main_screen.msgSend(c.CGRect, "frame", .{})});
 
     return .{
         .display_width = @as(u32, @intFromFloat(frame.size.width)),
