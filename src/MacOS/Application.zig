@@ -1,26 +1,26 @@
 const std = @import("std");
 const objc = @import("objc");
 const glue = @import("glue");
+const options = @import("options");
 
 const c = @cImport({
     @cInclude("CoreGraphics/CoreGraphics.h");
     @cInclude("mach/mach_time.h");
+    @cInclude("pthread.h");
 });
 
 const Object = objc.Object;
 const nil: objc.c.id = @ptrFromInt(0);
 
-extern const NSDefaultRunLoopMode: objc.c.id;
+extern const NSDefaultRunLoopMode: objc.c.id; // points to @"NSDefaultRunLoopMode"
 
-const framebuffer_count: usize = 2;
-
+const Delegate = @import("Delegate.zig");
 const GameCode = @import("GameCode.zig");
 const MetalContext = @import("MetalContext.zig");
 const FramebufferPool = @import("FramebufferPool.zig");
 const DeviceInfo = @import("DeviceInfo.zig");
-const Delegate = @import("Delegate.zig");
-const GameMemory = glue.GameMemory;
 const Time = @import("Time.zig");
+const GameMemory = glue.GameMemory;
 
 const Application = @This();
 
@@ -28,14 +28,14 @@ const AtomicUsize = std.atomic.Value(usize);
 const AtomicBool = std.atomic.Value(bool);
 
 game_code: GameCode,
+lib_paths: GameCode.LibPaths,
 game_memory: GameMemory,
 
-lib_paths: GameCode.LibPaths,
+time: Time,
 
 mtl_context: MetalContext,
 framebuffer_pool: FramebufferPool,
-
-time: Time,
+framebuffers_bakcking_mem: []u32,
 
 running: AtomicBool = AtomicBool.init(false),
 
@@ -46,47 +46,39 @@ delegate: Object,
 device_info: DeviceInfo,
 
 pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, window_height: u32) !void {
-    const game_memory_permanent = try allocator.alignedAlloc(u8, std.heap.pageSize(), glue.GameMemory.permanent_storage_size);
-    errdefer allocator.free(game_memory_permanent);
-
     app.time = Time.init();
 
-    app.game_memory = .{
-        .permanent_storage = game_memory_permanent.ptr,
-    };
+    app.game_memory = try glue.GameMemory.init(allocator);
+    errdefer app.game_memory.deinit(allocator);
 
     app.device_info = DeviceInfo.init();
+    app.framebuffers_bakcking_mem = try allocator.alignedAlloc(
+        u32,
+        std.heap.pageSize(),
+        app.device_info.display_width * app.device_info.display_height,
+    );
+    errdefer allocator.free(app.framebuffers_bakcking_mem);
 
     app.lib_paths = try GameCode.LibPaths.init(allocator);
+    errdefer app.lib_paths.deinit(allocator);
 
     app.game_code = try GameCode.load(app.lib_paths);
     errdefer app.game_code.unload();
-
     app.mtl_context = MetalContext.init();
-
-    app.framebuffer_pool = try FramebufferPool.init(allocator, app.mtl_context.device, .{
-        .width = window_width,
-        .height = window_height,
-        .max_width = app.device_info.display_width,
-        .max_height = app.device_info.display_height,
-    });
-    errdefer app.framebuffer_pool.deinit();
 
     app.delegate = Delegate.init(&app.running);
     errdefer app.delegate.msgSend(void, "release", .{});
 
     app.NSApp = objc.getClass("NSApplication").?.msgSend(Object, "sharedApplication", .{});
-    errdefer app.NSApp.msgSend(void, "release", .{});
 
     app.NSApp.msgSend(void, "setActivationPolicy:", .{@as(usize, 0)}); // NSApplicationActivationPolicyRegular
     app.NSApp.msgSend(void, "setDelegate:", .{app.delegate.value});
-    defer {}
 
     const window_rect = c.CGRectMake(
         0, // x
         0, // y
-        @as(c.CGFloat, @floatFromInt(window_width)), // width
-        @as(c.CGFloat, @floatFromInt(window_height)), // height
+        @as(c.CGFloat, @floatFromInt(window_width)),
+        @as(c.CGFloat, @floatFromInt(window_height)),
     );
 
     app.NSWindow = objc.getClass("NSWindow").?.msgSend(
@@ -108,33 +100,61 @@ pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, 
     app.NSWindow.msgSend(void, "makeKeyAndOrderFront:", .{nil});
 
     app.NSApp.msgSend(void, "finishLaunching", .{});
-    app.NSApp.msgSend(void, "activate", .{});
+    app.NSApp.msgSend(void, "activateIgnoringOtherApps:", .{true});
 
     const view: Object = app.NSWindow.msgSend(Object, "contentView", .{});
 
     view.msgSend(void, "setWantsLayer:", .{true});
     view.msgSend(void, "setLayer:", .{app.mtl_context.layer.value});
-}
-pub fn deinit(self: *Application, allocator: std.mem.Allocator) void {
-    self.game_code.unload();
 
+    const view_bounds = view.msgSend(c.CGRect, "bounds", .{});
+
+    app.framebuffer_pool = try FramebufferPool.init(
+        allocator,
+        app.mtl_context.device,
+        .{
+            .max_width = app.device_info.display_width,
+            .max_height = app.device_info.display_height,
+            .width = @intFromFloat(view_bounds.size.width),
+            .height = @intFromFloat(view_bounds.size.height),
+        },
+    );
+    errdefer app.framebuffer_pool.deinit(allocator);
+}
+
+pub fn deinit(self: *Application, allocator: std.mem.Allocator) void {
+    std.debug.print("deinit Application\n", .{});
     self.delegate.msgSend(void, "release", .{});
     self.NSWindow.msgSend(void, "release", .{});
-    self.NSApp.msgSend(void, "release", .{});
 
-    self.framebuffer_pool.deinit();
+    self.game_code.unload();
+    self.lib_paths.deinit(allocator);
+
+    self.framebuffer_pool.deinit(allocator);
+    allocator.free(self.framebuffers_bakcking_mem);
     self.mtl_context.deinit();
 
     self.game_memory.deinit(allocator);
 }
+
 pub fn run(self: *Application) !void {
-    const game_thread = try std.Thread.spawn(.{}, gameLoop, .{self});
-    defer game_thread.join();
+    self.running.store(true, .seq_cst);
+
+    const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
+        // &self.game_code,
+        // &self.game_memory,
+        // &self.framebuffer_pool,
+        // &self.running,
+        // &self.time,
+        self,
+        @as(f64, 1.0 / 60.0),
+    });
+    game_thread.detach();
+
     self.cocoaLoop();
 }
 
-const delta_time_s: f64 = 1.0 / 60.0;
-
+const delta_time_s: f64 = 1.0 / 60.0; // 60 FPS
 fn gameLoop(self: *Application) void {
     var timer = Time.RepeatingTimer.initAndStart(
         &self.time,
