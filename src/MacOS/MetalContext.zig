@@ -2,6 +2,7 @@ const std = @import("std");
 const objc = @import("objc");
 
 const FramebufferPool = @import("FrameBufferPool.zig");
+const Framebuffer = FramebufferPool.Framebuffer;
 
 const Object = objc.Object;
 const nil = objc.c.id(@ptrFromInt(0));
@@ -51,10 +52,8 @@ pub fn deinit(self: *MetalContext) void {
 
 pub fn blitAndPresentFramebuffer(
     self: *const MetalContext,
-    framebuffer_pool: *const FramebufferPool,
-    framebuffer_index: usize,
+    framebuffer: *const Framebuffer,
 ) ?void {
-    std.debug.assert(framebuffer_index < framebuffer_pool.count);
     const drawable = self.layer.msgSend(Object, "nextDrawable", .{});
     if (drawable.value == nil) {
         return null;
@@ -72,7 +71,7 @@ pub fn blitAndPresentFramebuffer(
         .{},
     );
 
-    blit(cmd_buffer, dst_texture, framebuffer_pool, framebuffer_index);
+    blit(cmd_buffer, dst_texture, framebuffer, framebuffer_index);
 
     cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
     cmd_buffer.msgSend(void, "commit", .{});
@@ -82,9 +81,7 @@ fn blit(
     cmd_buffer: Object,
     dst_texture: Object,
     framebuffer_pool: *const FramebufferPool,
-    framebuffer_index: usize,
 ) void {
-    std.debug.assert(framebuffer_index < framebuffer_pool.count);
     const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
 
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{

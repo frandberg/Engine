@@ -30,8 +30,6 @@ game_memory: GameMemory,
 
 mtl_context: MetalContext,
 framebuffer_pool: FramebufferPool,
-framebuffers_bakcking_mem: []u32,
-latest_framebuffer_index: AtomicUsize,
 
 running: AtomicBool = false,
 
@@ -137,20 +135,43 @@ pub fn run(self: *Application) void {
 const delta_time_s: f64 = 1.0 / 60.0;
 
 fn gameLoop(self: *Application) void {
-    _ = self;
+    while (self.running.load(.seq_cst)) {
+        const start_time = c.mach_absolute_time();
+        self.game_code.update(self.game_memory, delta_time_s);
+        const end_time = c.mach_absolute_time();
+
+        const elapsed_ns = c.mach_absolute_to_nanoseconds(end_time - start_time);
+        const sleep_ns = @as(u64, (delta_time_s * 1_000_000_000.0) - elapsed_ns);
+        if (sleep_ns > 0) {
+            std.time.sleep(std.time.ns(sleep_ns));
+        }
+    }
 }
 
 const event_timeout_seconds: f64 = 0.0005;
 fn cocoaLoop(self: *Application) void {
+    const framebuffer_pool = &self.framebuffer_pool;
+    const mtl_context = &self.mtl_context;
+
     while (self.running.load(.seq_cst)) {
         if (nextEvent(self.NSApp, event_timeout_seconds)) |event| {
             self.app.msgSend(void, "sendEvent:", .{event});
             self.app.msgSend(void, "updateWindows", .{});
         }
-        const i = self.latest_framebuffer_index.load(.seq_cst);
-        if (self.framebuffer_pool.stateCmpAndSwap(i, .ready, .in_use)) {
-            self.mtl_context.blitAndPresentFramebuffer(&self.framebuffer_pool, i);
-            self.framebuffer_pool.setBufferState(i, .free);
+        const frambuffer_index = framebuffer_pool.latest_ready_index.load(.seq_cst);
+        if (frambuffer_index == -1) continue;
+        const framebuffer = framebuffer_pool.framebuffers[frambuffer_index];
+
+        if (framebuffer.state.cmpxchgStrong(.ready, .in_use, .seq_cst)) |old_state| {
+            if (old_state == .ready) {
+                mtl_context.blitAndPresentFramebuffer(framebuffer_pool, frambuffer_index);
+
+                framebuffer_pool.latest_ready_index.cmpxchgStrong(frambuffer_index, -1, .seq_cst, .seq_cst);
+            }
+
+            framebuffer.state.store(.free, .seq_cst);
+        } else {
+            std.debug.print("Failed to change framebuffer state from ready to in_use\n", .{});
         }
     }
     std.debug.print("cocoa loop exited\n", .{});

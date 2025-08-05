@@ -5,6 +5,8 @@ const c = @cImport({
 
 const Time = @This();
 
+pub const RepeatingTimer = struct {};
+
 timebase_info: c.mach_timebase_info_data_t = c.mach_timebase_info_data_t,
 
 pub fn init() !Time {

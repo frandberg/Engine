@@ -13,23 +13,42 @@ pub const State = enum(u32) {
 };
 
 pub const AtomicState = std.atomic.Value(State);
+pub const AtomicISize = std.atomic.Value(isize);
 
-pub const max_frames = 3;
+pub const Framebuffer = struct {
+    memory: []u32,
+    width: u32,
+    height: u32,
+    state: AtomicState,
+
+    pub fn glueBuffer(self: *const Self) glue.OffscreenBufferBGRA8 {
+        return .{
+            .memory = self.memory.ptr,
+            .width = self.width,
+            .height = self.height,
+        };
+    }
+};
+
+pub const Info = struct {
+    width: u32,
+    height: u32,
+    max_width: u32,
+    max_height: u32,
+};
+
+pub const buffer_count: usize = 2;
+pub const pixels_per_unit: usize = @sizeOf(u32);
 
 const Self = @This();
-backing_memory: u32,
+backing_memory: []u32,
 mtl_buffer: Object,
-width: u32,
-height: u32,
-mem_per_buffer: usize,
-count: usize,
-states: std.BoundedArray(AtomicState, max_frames),
+latest_ready_index: isize,
 
-pub fn init(device: Object, backing_memory: []u32, width: u32, height: u32, count: usize) !Self {
-    std.debug.assert(count < max_frames);
-    const units_per_buffer = try std.math.divExact(backing_memory.len, count);
-    std.debug.assert(units_per_buffer >= width * height);
+pub fn init(allocaor: std.mem.Allocator, device: Object, info: Info) !Self {
+    const allocation_size = info.max_width * info.max_height * buffer_count;
 
+    const backing_memory = try allocaor.alignedAlloc(u32, std.heap.pageSize(), allocation_size);
     const mtl_buffer = device.msgSend(
         Object,
         "newBufferWithBytesNoCopy:length:options:deallocator:",
@@ -41,18 +60,22 @@ pub fn init(device: Object, backing_memory: []u32, width: u32, height: u32, coun
         },
     );
 
-    var states = std.BoundedArray(AtomicState, max_frames).init(count);
-    for (states.slice()) |*state| {
-        state.init(.free);
+    var buffers: [buffer_count]Framebuffer = undefined;
+    for (&buffers, 0..) |*buffer, i| {
+        const start_index = info.max_width * info.max_height * i;
+        const end_index = start_index + info.width * info.height;
+        buffer = .{
+            .memory = backing_memory[start_index..end_index],
+            .width = info.width,
+            .height = info.height,
+            .state = AtomicState.init(.free),
+        };
     }
 
     return Self{
         .backing_memory = backing_memory,
         .mtl_buffer = mtl_buffer,
-        .width = width,
-        .height = height,
-        .count = count,
-        .states = states,
+        .framebuffers = buffers,
     };
 }
 
@@ -61,69 +84,9 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn unitsPerBuffer(self: *const Self) usize {
-    std.debug.assert(self.count <= max_frames);
-    const result = std.math.divExact(usize, self.backing_memory, self.count);
-    std.debug.assert(result >= self.width * self.height);
-    return result;
-}
-
-pub fn setBufferState(self: *Self, index: usize, state: State) void {
-    std.debug.assert(self.count <= max_frames);
-    std.debug.assert(index < self.count);
-    self.states.slice()[index].store(state, .seq_cst);
-}
-
-pub fn stateCmpAndSwap(self: *Self, index: usize, expected: State, new_state: State) bool {
-    std.debug.assert(self.count <= max_frames);
-    std.debug.assert(index < self.count);
-    return self.states.slice()[index].cmpxchgStrong(expected, new_state, .seq_cst, .seq_cst);
+    return std.math.divExact(self.backing_memory.len / buffer_count, pixels_per_unit) catch @panic("invalid division");
 }
 
 pub fn bufferOffset(self: *const Self, index: usize) usize {
-    std.debug.assert(self.count <= max_frames);
-    std.debug.assert(index < self.count);
-    return self.mem_per_buffer * index;
-}
-
-pub fn bufferSize(self: *const Self) usize {
-    std.debug.assert(self.count <= max_frames);
-    return self.width * self.height * @sizeOf(u32);
-}
-
-pub fn bufferPitch(self: *const Self) usize {
-    std.debug.assert(self.count <= max_frames);
-    return self.width * @sizeOf(u32);
-}
-
-pub fn bufferSlice(self: *const Self, index: usize) []u32 {
-    std.debug.assert(self.count <= max_frames);
-    std.debug.assert(index < self.count);
-    return self.backing_memory[self.bufferOffset(index) .. self.bufferOffset(index) + self.bufferSize()];
-}
-
-pub fn resize(self: *Self, new_width: u32, new_height: u32) void {
-    std.debug.assert(self.count <= max_frames);
-    if (new_width * new_height < self.widht * self.height) {
-        for (0..self.count) |i| {
-            const start_index: usize = self.bufferOffset(i) + new_width * new_height;
-            const end_index: usize = self.bufferOffset(i) + self.bufferSize();
-            @memset(self.backing_memory[start_index..end_index], 0);
-        }
-    }
-    self.width = new_width;
-    self.height = new_height;
-}
-
-pub fn clear(self: *const Self, buffer_index: usize, color: u32) void {
-    std.debug.assert(self.count <= max_frames);
-    @memset(self.bufferSlice(buffer_index), color);
-}
-
-pub fn glueBuffer(self: *const Self, buffer_index: usize) glue.OffscreenBufferBGRA8 {
-    std.debug.assert(self.count <= max_frames);
-    return .{
-        .memory = self.bufferSlice(buffer_index),
-        .width = self.width,
-        .height = self.height,
-    };
+    self.unitsPerBuffer() * index;
 }
