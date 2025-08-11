@@ -33,11 +33,12 @@ pub const RepeatingTimer = struct {
 
     pub fn wait(self: *RepeatingTimer) void {
         const wait_time = self.start_time + self.delta_time * self.iteration;
-        std.debug.assert(wait_time > now());
+        defer _ = c.mach_wait_until(wait_time);
+
+        std.debug.assert(wait_time >= c.mach_absolute_time());
         self.profile_info.last_wait_time = self.time.ticksToSeconds(wait_time);
 
         self.iteration += 1;
-        _ = c.mach_wait_until(wait_time);
     }
 };
 

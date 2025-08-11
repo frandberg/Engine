@@ -66,6 +66,8 @@ pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, 
     errdefer app.game_code.unload();
     app.mtl_context = MetalContext.init();
 
+    app.game_code.initGameMemory(&app.game_memory);
+
     app.delegate = Delegate.init(&app.running);
     errdefer app.delegate.msgSend(void, "release", .{});
 
@@ -141,11 +143,6 @@ pub fn run(self: *Application) !void {
     self.running.store(true, .seq_cst);
 
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
-        // &self.game_code,
-        // &self.game_memory,
-        // &self.framebuffer_pool,
-        // &self.running,
-        // &self.time,
         self,
         @as(f64, 1.0 / 60.0),
     });
@@ -155,38 +152,39 @@ pub fn run(self: *Application) !void {
 }
 
 fn gameLoop(self: *Application, delta_time_s: f64) void {
-    var timer = Time.RepeatingTimer.initAndStart(
-        &self.time,
-        delta_time_s,
-    );
+    // var timer = Time.RepeatingTimer.initAndStart(
+    //     &self.time,
+    //     delta_time_s,
+    // );
 
     const framebuffer_pool = &self.framebuffer_pool;
     const framebuffers = &framebuffer_pool.framebuffers;
     const game_code = &self.game_code;
 
-    while (self.running.load(.seq_cst)) {
-        const framebuffer_index = for (framebuffers, 0..) |framebuffer, i| {
-            if (framebuffer.state.load(.seq_cst) == .free) {
-                break i;
-            }
-        } else null;
+    const ready_index = &framebuffer_pool.ready_index;
 
-        if (framebuffer_index) |fb_index| {
-            game_code.updateAndRender(
-                &framebuffers[fb_index].glueBuffer(),
-                &self.game_memory,
-                delta_time_s,
-            );
-            framebuffers[fb_index].state.store(.ready, .seq_cst);
-            framebuffer_pool.latest_ready_index.store(@intCast(fb_index), .seq_cst);
-        } else {
-            game_code.updateAndRender(
-                null,
-                &self.game_memory,
-                delta_time_s,
-            );
+    while (self.running.load(.seq_cst)) {
+        const framebuffer_index: usize = for (framebuffers, 0..) |_, i| {
+            if (ready_index.load(.seq_cst) == i) continue;
+            break i;
+        } else unreachable;
+
+        framebuffers[framebuffer_index].clear(0);
+        game_code.updateAndRender(
+            &framebuffers[framebuffer_index].glueBuffer(),
+            &self.game_memory,
+            delta_time_s,
+        );
+        if (framebuffer_pool.ready_index.cmpxchgStrong(
+            FramebufferPool.invalid_framebuffer_index,
+            framebuffer_index,
+            .seq_cst,
+            .seq_cst,
+        ) == null) {
+            std.debug.print("game loop: framebuffer index {} was not ready, but now it is!\n", .{framebuffer_index});
         }
-        timer.wait();
+
+        // timer.wait();
     }
 }
 
@@ -200,38 +198,32 @@ fn cocoaLoop(self: *Application) void {
             self.NSApp.msgSend(void, "sendEvent:", .{event});
             self.NSApp.msgSend(void, "updateWindows", .{});
         }
-        const frambuffer_index = framebuffer_pool.latest_ready_index.load(.seq_cst);
-        if (frambuffer_index == -1) continue;
-        const framebuffer = &framebuffer_pool.framebuffers[@intCast(frambuffer_index)];
+        const framebuffer_index = framebuffer_pool.ready_index.load(.seq_cst);
+        if (framebuffer_index != FramebufferPool.invalid_framebuffer_index) {
+            // std.debug.print("cocoa loop: presenting framebuffer index: {}\n", .{framebuffer_index});
+            mtl_context.blitAndPresentFramebuffer(framebuffer_pool, framebuffer_index);
 
-        if (framebuffer.state.cmpxchgStrong(.ready, .in_use, .seq_cst, .seq_cst)) |old_state| {
-            if (old_state == .ready) {
-                mtl_context.blitAndPresentFramebuffer(framebuffer_pool, @intCast(frambuffer_index));
-
-                _ = framebuffer_pool.latest_ready_index.cmpxchgStrong(frambuffer_index, -1, .seq_cst, .seq_cst);
-            }
-
-            framebuffer.state.store(.free, .seq_cst);
-        } else {
-            std.debug.print("Failed to change framebuffer state from ready to in_use\n", .{});
+            std.debug.assert(framebuffer_pool.ready_index.cmpxchgStrong(framebuffer_index, FramebufferPool.invalid_framebuffer_index, .seq_cst, .seq_cst) == null);
+            // std.debug.print("cocoa loop: presented framebuffer index: {}\n", .{framebuffer_index});
         }
     }
     std.debug.print("cocoa loop exited\n", .{});
 }
 
+const mask: usize = std.math.maxInt(usize);
 fn nextEvent(app: objc.Object, timeout_seconds: f64) ?objc.c.id {
-    const mask = std.math.maxInt(usize);
-    const until_date = dateSinceNow(timeout_seconds);
+    const until_date: objc.c.id = dateSinceNow(timeout_seconds);
     const event = app.msgSend(objc.c.id, "nextEventMatchingMask:untilDate:inMode:dequeue:", .{
         mask,
         until_date,
         NSDefaultRunLoopMode,
-        @as(i8, 1),
+        true,
     });
 
     if (event != nil) {
         return event;
-    } else return null;
+    }
+    return null;
 }
 
 fn dateSinceNow(seconds: f64) objc.c.id {

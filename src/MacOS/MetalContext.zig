@@ -76,6 +76,7 @@ pub fn blitAndPresentFramebuffer(
 
     cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
     cmd_buffer.msgSend(void, "commit", .{});
+    cmd_buffer.msgSend(void, "waitUntilCompleted", .{});
 }
 
 fn blit(
@@ -84,9 +85,9 @@ fn blit(
     framebuffer_pool: *const FramebufferPool,
     framebuffer_index: usize,
 ) void {
-    const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
-
     const framebuffer = framebuffer_pool.framebuffers[framebuffer_index];
+    const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
+    blit_encoder.msgSend(void, "synchronizeResource:", .{framebuffer_pool.mtl_buffer.value});
 
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{
         framebuffer_pool.mtl_buffer.value,

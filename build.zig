@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib_name: []const u8 = b.option([]const u8, "lib_name", "name of the dynamic game lib to be used for loading at runtime") orelse return error.NoLibName;
+    const lib_name: []const u8 = b.option([]const u8, "lib_name", "name of the dynamic game lib to be used for loading at runtime") orelse "no lib";
 
     const hot_reload: bool = b.option(
         bool,

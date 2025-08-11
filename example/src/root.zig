@@ -10,8 +10,11 @@ pub export fn initGameMemory(game_memory: *const glue.GameMemory) callconv(.c) v
     game_state.* = .{};
 }
 
+var frame_mem: [2][]u32 = undefined;
 pub export fn updateAndRender(buffer: ?*const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory) void {
     const game_state: *GameState = @alignCast(@ptrCast(game_memory.permanent_storage));
+    // const red: f32 = @as(f32, @floatFromInt(game_state.frame % 255)) / 255.0;
+    const red: f32 = 1.0;
     if (buffer) |buff| {
         drawRectangle(buff, .{
             .x = 0.5,
@@ -19,11 +22,20 @@ pub export fn updateAndRender(buffer: ?*const glue.OffscreenBufferBGRA8, game_me
             .width = 0.5,
             .height = 0.5,
         }, .{
-            .r = 1.0,
+            .r = red,
             .g = 0.0,
             .b = 0.0,
             .a = 1.0,
         });
+
+        if (game_state.frame % 2 == 0) {
+            frame_mem[0] = buff.memory[0 .. buff.width * buff.height];
+        } else {
+            frame_mem[1] = buff.memory[0 .. buff.width * buff.height];
+        }
+        if (game_state.frame > 1) {
+            std.debug.assert(std.mem.eql(u32, frame_mem[0], frame_mem[1]));
+        }
     }
 
     game_state.frame += 1;
