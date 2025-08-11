@@ -16,6 +16,11 @@ pub export fn updateAndRender(buffer: ?*const glue.OffscreenBufferBGRA8, game_me
     // const red: f32 = @as(f32, @floatFromInt(game_state.frame % 255)) / 255.0;
     const red: f32 = 1.0;
     if (buffer) |buff| {
+        // @memset(buff.memory[0 .. buff.width * buff.height], 0);
+        // if (buff.memory[0] != 0) {
+        //     std.debug.print("Buffer memory is not zeroed, frame: {}\n", .{game_state.frame});
+        //     unreachable;
+        // }
         drawRectangle(buff, .{
             .x = 0.5,
             .y = 0.5,
@@ -28,13 +33,11 @@ pub export fn updateAndRender(buffer: ?*const glue.OffscreenBufferBGRA8, game_me
             .a = 1.0,
         });
 
-        if (game_state.frame % 2 == 0) {
-            frame_mem[0] = buff.memory[0 .. buff.width * buff.height];
-        } else {
-            frame_mem[1] = buff.memory[0 .. buff.width * buff.height];
-        }
         if (game_state.frame > 1) {
-            std.debug.assert(std.mem.eql(u32, frame_mem[0], frame_mem[1]));
+            const diff_index = std.mem.indexOfDiff(u32, frame_mem[0], frame_mem[1]);
+            if (diff_index) |index| {
+                std.debug.print("Difference found at index: {}, 0 was: {}, 1 was {}\n", .{ index, frame_mem[0][index], frame_mem[1][index] });
+            }
         }
     }
 

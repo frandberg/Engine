@@ -144,7 +144,7 @@ pub fn run(self: *Application) !void {
 
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
         self,
-        @as(f64, 1.0 / 60.0),
+        @as(f64, 1.0 / 360.0),
     });
     game_thread.detach();
 
@@ -152,10 +152,10 @@ pub fn run(self: *Application) !void {
 }
 
 fn gameLoop(self: *Application, delta_time_s: f64) void {
-    // var timer = Time.RepeatingTimer.initAndStart(
-    //     &self.time,
-    //     delta_time_s,
-    // );
+    var timer = Time.RepeatingTimer.initAndStart(
+        &self.time,
+        delta_time_s,
+    );
 
     const framebuffer_pool = &self.framebuffer_pool;
     const framebuffers = &framebuffer_pool.framebuffers;
@@ -170,21 +170,20 @@ fn gameLoop(self: *Application, delta_time_s: f64) void {
         } else unreachable;
 
         framebuffers[framebuffer_index].clear(0);
+        std.debug.assert(std.mem.allEqual(u32, framebuffer_pool.framebuffers[framebuffer_index].memory, 0));
         game_code.updateAndRender(
             &framebuffers[framebuffer_index].glueBuffer(),
             &self.game_memory,
             delta_time_s,
         );
-        if (framebuffer_pool.ready_index.cmpxchgStrong(
+        _ = framebuffer_pool.ready_index.cmpxchgStrong(
             FramebufferPool.invalid_framebuffer_index,
             framebuffer_index,
             .seq_cst,
             .seq_cst,
-        ) == null) {
-            std.debug.print("game loop: framebuffer index {} was not ready, but now it is!\n", .{framebuffer_index});
-        }
+        );
 
-        // timer.wait();
+        timer.wait();
     }
 }
 
@@ -200,11 +199,9 @@ fn cocoaLoop(self: *Application) void {
         }
         const framebuffer_index = framebuffer_pool.ready_index.load(.seq_cst);
         if (framebuffer_index != FramebufferPool.invalid_framebuffer_index) {
-            // std.debug.print("cocoa loop: presenting framebuffer index: {}\n", .{framebuffer_index});
             mtl_context.blitAndPresentFramebuffer(framebuffer_pool, framebuffer_index);
 
             std.debug.assert(framebuffer_pool.ready_index.cmpxchgStrong(framebuffer_index, FramebufferPool.invalid_framebuffer_index, .seq_cst, .seq_cst) == null);
-            // std.debug.print("cocoa loop: presented framebuffer index: {}\n", .{framebuffer_index});
         }
     }
     std.debug.print("cocoa loop exited\n", .{});

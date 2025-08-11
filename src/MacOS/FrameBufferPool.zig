@@ -6,12 +6,12 @@ const glue = @import("glue");
 const Object = objc.Object;
 const nil: objc.c.id = @ptrFromInt(0);
 
-const Self = @This();
+const FramebufferPool = @This();
 
 pub const AtomicUSize = std.atomic.Value(usize);
 
 pub const buffer_count: usize = 2;
-pub const pixels_per_unit: u32 = @sizeOf(u32);
+pub const bytes_per_pixel: u32 = @sizeOf(u32);
 pub const invalid_framebuffer_index: usize = std.math.maxInt(usize);
 
 pub const Info = struct {
@@ -27,7 +27,7 @@ pub const Framebuffer = struct {
     height: u32,
 
     pub fn pitch(self: *const Framebuffer) usize {
-        return self.width * pixels_per_unit;
+        return self.width * bytes_per_pixel;
     }
 
     pub fn size(self: *const Framebuffer) usize {
@@ -50,25 +50,16 @@ mtl_buffer: Object,
 framebuffers: [buffer_count]Framebuffer,
 ready_index: AtomicUSize = AtomicUSize.init(invalid_framebuffer_index),
 
-pub fn init(allocaor: std.mem.Allocator, device: Object, info: Info) !Self {
+pub fn init(allocaor: std.mem.Allocator, device: Object, info: Info) !FramebufferPool {
     const allocation_size = info.max_width * info.max_height * buffer_count;
 
     const backing_memory = try allocaor.alignedAlloc(u32, std.heap.pageSize(), allocation_size);
-    const mtl_buffer = device.msgSend(
-        Object,
-        "newBufferWithBytesNoCopy:length:options:deallocator:",
-        .{
-            @as(*anyopaque, backing_memory.ptr),
-            @as(usize, backing_memory.len * @sizeOf(u32)),
-            @as(usize, 0), // MTLResourceStorageModeShared
-            nil,
-        },
-    );
+    @memset(backing_memory, 0);
 
     var buffers: [buffer_count]Framebuffer = undefined;
     for (&buffers, 0..) |*buffer, i| {
         const start_index = i * (std.math.divExact(usize, backing_memory.len, buffer_count) catch @panic("invalid division"));
-        const end_index = start_index + (info.width * info.height);
+        const end_index = start_index + info.width * info.height;
         buffer.* = .{
             .memory = backing_memory[start_index..end_index],
             .width = info.width,
@@ -77,22 +68,44 @@ pub fn init(allocaor: std.mem.Allocator, device: Object, info: Info) !Self {
         std.debug.assert(buffer.memory.len == info.width * info.height);
     }
 
-    return Self{
+    const mtl_buffer = device.msgSend(
+        Object,
+        "newBufferWithBytesNoCopy:length:options:deallocator:",
+        .{
+            @as(*anyopaque, backing_memory.ptr),
+            @as(usize, backing_memory.len * bytes_per_pixel),
+            @as(usize, 0), // MTLResourceStorageModeShared
+            nil,
+        },
+    );
+
+    return FramebufferPool{
         .backing_memory = backing_memory,
         .mtl_buffer = mtl_buffer,
         .framebuffers = buffers,
     };
 }
 
-pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *FramebufferPool, allocator: std.mem.Allocator) void {
     self.mtl_buffer.msgSend(void, "release", .{});
     allocator.free(self.backing_memory);
 }
 
-pub fn unitsPerBuffer(self: *const Self) usize {
+pub fn pixelsPerBuffer(self: *const FramebufferPool) usize {
     return std.math.divExact(usize, self.backing_memory.len, buffer_count) catch @panic("invalid division");
 }
 
-pub fn bufferOffset(self: *const Self, index: usize) usize {
-    return self.unitsPerBuffer() * index;
+pub fn bufferOffset(self: *const FramebufferPool, index: usize) usize {
+    const byte_offset = self.pixelsPerBuffer() * bytes_per_pixel * index;
+
+    // sanity check: computed byte address must equal slice ptr
+    const base_addr = @intFromPtr(self.backing_memory.ptr);
+    const expect_ptr = base_addr + byte_offset;
+    const actual_ptr = @intFromPtr(self.framebuffers[index].memory.ptr);
+
+    if (expect_ptr != actual_ptr) {
+        std.debug.print("Buffer offset mismatch: expect {}, actual {}\n", .{ expect_ptr, actual_ptr });
+        unreachable;
+    }
+    return byte_offset; // Metal's sourceOffset expects BYTES
 }
