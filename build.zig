@@ -4,18 +4,12 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib_name: []const u8 = b.option([]const u8, "lib_name", "name of the dynamic game lib to be used for loading at runtime") orelse "no lib";
-
-    const hot_reload: bool = b.option(
-        bool,
-        "enable_hot_reload",
-        "Enable hot reloading of the game code",
-    ) orelse false;
-
     const options = b.addOptions();
 
-    options.addOption([]const u8, "lib_name", lib_name);
-    options.addOption(bool, "hot_reload", hot_reload);
+    const exe_root_source_file = switch (target.result.os.tag) {
+        .macos => b.path("src/PlatfromLayer/MacOS/main.zig"),
+        else => @panic("Unsupported OS"),
+    };
 
     const glue = b.addModule("glue", .{
         .root_source_file = b.path("src/glue.zig"),
@@ -23,16 +17,22 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const exe_mod = b.addModule("exe_mod", .{
-        .root_source_file = b.path("src/MacOS/main.zig"),
+    const platfrom_layer_common = b.addModule("PlatformLayerCommon", .{
+        .root_source_file = b.path("src/PlatfromLayer/Common/Common.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{
-            .name = "glue",
-            .module = glue,
-        }},
     });
+
+    const exe_mod = b.createModule(
+        .{
+            .root_source_file = exe_root_source_file,
+            .target = target,
+            .optimize = optimize,
+        },
+    );
+    exe_mod.addImport("glue", glue);
     exe_mod.addImport("options", options.createModule());
+    exe_mod.addImport("common", platfrom_layer_common);
 
     if (target.result.os.tag == .macos) {
         const objc_dep = b.dependency("objc", .{});
@@ -43,6 +43,57 @@ pub fn build(b: *std.Build) !void {
     } else {
         return error.UnsuportedOS;
     }
+
+    const exe = b.addExecutable(.{
+        .name = "exe",
+        .root_module = exe_mod,
+    });
+
+    const example_mod = b.createModule(.{
+        .root_source_file = b.path("example/src/example.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    example_mod.addImport("glue", glue);
+
+    const example_lib = b.addLibrary(.{
+        .name = "example",
+        .root_module = example_mod,
+        .linkage = .dynamic,
+    });
+
+    install(b, exe, example_lib, .{
+        .mac_os = .{
+            .bundle_identifier = "com.example.game",
+            .bundle_name = "Example",
+        },
+        .target = target,
+        .optimize = optimize,
+    }) catch |err| {
+        std.debug.print("Failed to install example: {s}\n", .{@errorName(err)});
+        return err;
+    };
+
+    const example_step = b.step("example", "build the example");
+    example_step.dependOn(b.getInstallStep());
+
+    const run_cmd = b.addRunArtifact(exe);
+
+    run_cmd.step.dependOn(example_step);
+
+    run_cmd.addArgs(&.{
+        "--hot",
+        "--game",
+    });
+
+    run_cmd.addArtifactArg(example_lib);
+
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step("run-example", "Run the example");
+    run_step.dependOn(&run_cmd.step);
 }
 
 pub const Options = struct {
@@ -62,27 +113,12 @@ pub fn install(b: *std.Build, exe: *std.Build.Step.Compile, lib: *std.Build.Step
     const target = options.target;
     const optimize = options.optimize;
 
-    const target_path = try std.fmt.allocPrint(
-        b.allocator,
-        "{s}-{s}/{s}/",
-        .{
-            @tagName(target.result.os.tag),
-            @tagName(target.result.cpu.arch),
-            @tagName(optimize),
-        },
-    );
+    const sub_path = try installSubPath(b.allocator, target, optimize);
 
     switch (target.result.os.tag) {
         .macos => {
-            const exe_install_dir: std.Build.InstallDir = .{
-                .custom = try std.fmt.allocPrint(b.allocator, "bundle/{s}/{s}.app/Contents/MacOS/", .{ target_path, options.mac_os.bundle_name }),
-            };
-
-            const lib_install_dir: std.Build.InstallDir = .{
-                .custom = try std.fmt.allocPrint(b.allocator, "bundle/{s}/{s}.app/Contents/Frameworks/", .{ target_path, options.mac_os.bundle_name }),
-            };
             const info_plist_install_dir: std.Build.InstallDir = .{
-                .custom = try std.fmt.allocPrint(b.allocator, "bundle/{s}/{s}.app/Contents/", .{ target_path, options.mac_os.bundle_name }),
+                .custom = try std.fmt.allocPrint(b.allocator, "bundle/{s}/{s}.app/Contents/", .{ sub_path, options.mac_os.bundle_name }),
             };
 
             const write_info_plist = b.addWriteFile("Info.plist", try std.fmt.allocPrint(
@@ -103,8 +139,19 @@ pub fn install(b: *std.Build, exe: *std.Build.Step.Compile, lib: *std.Build.Step
                 "Info.plist",
             );
 
-            const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = exe_install_dir } });
-            const install_lib = b.addInstallArtifact(lib, .{ .dest_dir = .{ .override = lib_install_dir } });
+            const install_exe = try MacOS_install_artifact(
+                b,
+                exe,
+                sub_path,
+                options.mac_os.bundle_name,
+            );
+
+            const install_lib = try MacOS_install_artifact(
+                b,
+                lib,
+                sub_path,
+                options.mac_os.bundle_name,
+            );
 
             const install_step = b.getInstallStep();
 
@@ -114,4 +161,41 @@ pub fn install(b: *std.Build, exe: *std.Build.Step.Compile, lib: *std.Build.Step
         },
         else => std.debug.panic("Unsupported OS {}", .{target.result.os.tag}),
     }
+}
+
+fn MacOS_install_artifact(
+    b: *std.Build,
+    artifact: *std.Build.Step.Compile,
+    sub_path: []const u8,
+    bundle_name: []const u8,
+) !*std.Build.Step.InstallArtifact {
+    const kind_str = switch (artifact.kind) {
+        .exe => "MacOS/",
+        .lib => "Frameworks/",
+        else => unreachable,
+    };
+    const install_dir: std.Build.InstallDir = .{
+        .custom = try std.fmt.allocPrint(
+            b.allocator,
+            "bundle/{s}/{s}.app/Contents/{s}",
+            .{ sub_path, bundle_name, kind_str },
+        ),
+    };
+
+    return b.addInstallArtifact(
+        artifact,
+        .{ .dest_dir = .{ .override = install_dir } },
+    );
+}
+
+fn installSubPath(allocator: std.mem.Allocator, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) ![]const u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        "{s}-{s}/{s}/",
+        .{
+            @tagName(target.result.os.tag),
+            @tagName(target.result.cpu.arch),
+            @tagName(optimize),
+        },
+    );
 }

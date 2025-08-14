@@ -3,6 +3,8 @@ const objc = @import("objc");
 const glue = @import("glue");
 const options = @import("options");
 
+const common = @import("common");
+
 const c = @cImport({
     @cInclude("CoreGraphics/CoreGraphics.h");
     @cInclude("mach/mach_time.h");
@@ -28,7 +30,7 @@ const AtomicUsize = std.atomic.Value(usize);
 const AtomicBool = std.atomic.Value(bool);
 
 game_code: GameCode,
-lib_paths: GameCode.LibPaths,
+game_code_loader: ?GameCode.Loader,
 game_memory: GameMemory,
 
 time: Time,
@@ -46,6 +48,7 @@ delegate: Object,
 device_info: DeviceInfo,
 
 pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, window_height: u32) !void {
+    const args = common.Args.get();
     app.time = Time.init();
 
     app.game_memory = try glue.GameMemory.init(allocator);
@@ -59,11 +62,25 @@ pub fn init(app: *Application, allocator: std.mem.Allocator, window_width: u32, 
     );
     errdefer allocator.free(app.framebuffers_bakcking_mem);
 
-    app.lib_paths = try GameCode.LibPaths.init(allocator);
-    errdefer app.lib_paths.deinit(allocator);
+    if (args.game_lib) |game_lib| {
+        app.game_code_loader = try GameCode.Loader.init(
+            allocator,
+            game_lib,
+            args.hot_reload,
+        );
+    }
+    errdefer {
+        if (app.game_code_loader) |*loader| {
+            loader.deinit(allocator);
+        }
+    }
 
-    app.game_code = try GameCode.load(app.lib_paths);
-    errdefer app.game_code.unload();
+    app.game_code = if (app.game_code_loader) |*loader|
+        try loader.load()
+    else
+        .stub;
+    errdefer app.game_code = .stub;
+
     app.mtl_context = MetalContext.init();
 
     app.game_code.initGameMemory(&app.game_memory);
@@ -129,8 +146,10 @@ pub fn deinit(self: *Application, allocator: std.mem.Allocator) void {
     self.delegate.msgSend(void, "release", .{});
     self.NSWindow.msgSend(void, "release", .{});
 
-    self.game_code.unload();
-    self.lib_paths.deinit(allocator);
+    self.game_code = .stub;
+    if (self.game_code_loader) |*loader| {
+        loader.deinit(allocator);
+    }
 
     self.framebuffer_pool.deinit(allocator);
     allocator.free(self.framebuffers_bakcking_mem);
