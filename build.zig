@@ -4,8 +4,6 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const options = b.addOptions();
-
     const exe_root_source_file = switch (target.result.os.tag) {
         .macos => b.path("src/PlatfromLayer/MacOS/main.zig"),
         else => @panic("Unsupported OS"),
@@ -22,6 +20,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    platfrom_layer_common.addImport("glue", glue);
 
     const exe_mod = b.createModule(
         .{
@@ -31,7 +30,6 @@ pub fn build(b: *std.Build) !void {
         },
     );
     exe_mod.addImport("glue", glue);
-    exe_mod.addImport("options", options.createModule());
     exe_mod.addImport("common", platfrom_layer_common);
 
     if (target.result.os.tag == .macos) {
@@ -81,12 +79,12 @@ pub fn build(b: *std.Build) !void {
 
     run_cmd.step.dependOn(example_step);
 
-    run_cmd.addArgs(&.{
-        "--hot",
-        "--game",
-    });
-
-    run_cmd.addArtifactArg(example_lib);
+    // run_cmd.addArgs(&.{
+    //     "--hot",
+    //     "--game",
+    // });
+    //
+    // run_cmd.addArtifactArg(example_lib);
 
     if (b.args) |args| {
         run_cmd.addArgs(args);

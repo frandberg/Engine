@@ -10,7 +10,7 @@ const FramebufferPool = @This();
 
 pub const AtomicUSize = std.atomic.Value(usize);
 
-pub const buffer_count: usize = 2;
+pub const buffer_count: usize = 3;
 pub const bytes_per_pixel: u32 = @sizeOf(u32);
 pub const invalid_framebuffer_index: usize = std.math.maxInt(usize);
 
@@ -46,11 +46,13 @@ pub const Framebuffer = struct {
 };
 
 backing_memory: []u32,
-mtl_buffer: Object,
 framebuffers: [buffer_count]Framebuffer,
 ready_index: AtomicUSize = AtomicUSize.init(invalid_framebuffer_index),
+present_index: AtomicUSize = AtomicUSize.init(invalid_framebuffer_index),
 
-pub fn init(allocaor: std.mem.Allocator, device: Object, info: Info) !FramebufferPool {
+state_of_buffers: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+
+pub fn init(allocaor: std.mem.Allocator, info: Info) !FramebufferPool {
     const allocation_size = info.max_width * info.max_height * buffer_count;
 
     const backing_memory = try allocaor.alignedAlloc(u32, std.heap.pageSize(), allocation_size);
@@ -68,26 +70,13 @@ pub fn init(allocaor: std.mem.Allocator, device: Object, info: Info) !Framebuffe
         std.debug.assert(buffer.memory.len == info.width * info.height);
     }
 
-    const mtl_buffer = device.msgSend(
-        Object,
-        "newBufferWithBytesNoCopy:length:options:deallocator:",
-        .{
-            @as(*anyopaque, backing_memory.ptr),
-            @as(usize, backing_memory.len * bytes_per_pixel),
-            @as(usize, 0), // MTLResourceStorageModeShared
-            nil,
-        },
-    );
-
     return FramebufferPool{
         .backing_memory = backing_memory,
-        .mtl_buffer = mtl_buffer,
         .framebuffers = buffers,
     };
 }
 
 pub fn deinit(self: *FramebufferPool, allocator: std.mem.Allocator) void {
-    self.mtl_buffer.msgSend(void, "release", .{});
     allocator.free(self.backing_memory);
 }
 

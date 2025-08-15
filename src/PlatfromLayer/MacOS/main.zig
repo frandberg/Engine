@@ -7,9 +7,8 @@ pub fn main() !void {
     defer _ = gpa_state.deinit();
     const allocator = gpa_state.allocator();
 
-    var application: Application = undefined;
-    try application.init(allocator, 800, 600);
-
+    var application = try Application.init(allocator, 800, 600);
     defer application.deinit(allocator);
+
     try application.run();
 }

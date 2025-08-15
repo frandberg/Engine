@@ -70,6 +70,9 @@ pub const Loader = struct {
     pub fn deinit(self: *Loader, allocator: std.mem.Allocator) void {
         self.unload();
         if (self.hot_reload_path) |hot_path| {
+            std.fs.deleteFileAbsolute(hot_path) catch |err| {
+                std.debug.print("Failed to delete hot reload lib {s}: {s}\n", .{ hot_path, @errorName(err) });
+            };
             allocator.free(hot_path);
         }
     }

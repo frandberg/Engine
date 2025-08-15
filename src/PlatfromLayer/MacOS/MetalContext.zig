@@ -1,8 +1,9 @@
 const std = @import("std");
 const objc = @import("objc");
 
-const FramebufferPool = @import("FramebufferPool.zig");
-const Framebuffer = FramebufferPool.Framebuffer;
+const common = @import("common");
+const FramebufferPool = common.FramebufferPool;
+const Framebuffer = common.Framebuffer;
 
 const Object = objc.Object;
 const nil: objc.c.id = @ptrFromInt(0);
@@ -26,8 +27,9 @@ const MTLOrigin = extern struct {
 device: Object,
 command_queue: Object,
 layer: Object,
+backing_frame_buffers: Object,
 
-pub fn init() MetalContext {
+pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
     const device = Object.fromId(MTLCreateSystemDefaultDevice());
     std.debug.assert(device.value != nil);
 
@@ -36,12 +38,29 @@ pub fn init() MetalContext {
         "newCommandQueue",
         .{},
     );
+    std.debug.assert(command_queue.value != nil);
+
     const layer = objc.getClass("CAMetalLayer").?.msgSend(Object, "layer", .{});
+    std.debug.assert(layer.value != nil);
     layer.msgSend(void, "setDevice:", .{device.value});
+
+    const backing_frame_buffers = device.msgSend(
+        Object,
+        "newBufferWithBytesNoCopy:length:options:deallocator:",
+        .{
+            @as(*const anyopaque, backing_frame_buffer_mem.ptr),
+            @as(usize, backing_frame_buffer_mem.len * FramebufferPool.bytes_per_pixel),
+            @as(usize, 0), // MTLResourceStorageModeShared
+            nil,
+        },
+    );
+    std.debug.assert(backing_frame_buffers.value != nil);
+
     return .{
         .device = device,
         .command_queue = command_queue,
         .layer = layer,
+        .backing_frame_buffers = backing_frame_buffers,
     };
 }
 
@@ -72,7 +91,7 @@ pub fn blitAndPresentFramebuffer(
         .{},
     );
 
-    blit(cmd_buffer, dst_texture, framebuffer_pool, framebuffer_index);
+    blit(self.backing_frame_buffers, cmd_buffer, dst_texture, framebuffer_pool, framebuffer_index);
 
     cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
     cmd_buffer.msgSend(void, "commit", .{});
@@ -80,6 +99,7 @@ pub fn blitAndPresentFramebuffer(
 }
 
 fn blit(
+    mtl_buffer: Object,
     cmd_buffer: Object,
     dst_texture: Object,
     framebuffer_pool: *const FramebufferPool,
@@ -87,10 +107,9 @@ fn blit(
 ) void {
     const framebuffer = framebuffer_pool.framebuffers[framebuffer_index];
     const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
-    blit_encoder.msgSend(void, "synchronizeResource:", .{framebuffer_pool.mtl_buffer.value});
 
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{
-        framebuffer_pool.mtl_buffer.value,
+        mtl_buffer,
         framebuffer_pool.bufferOffset(framebuffer_index),
         framebuffer.pitch(),
         framebuffer.size(),
