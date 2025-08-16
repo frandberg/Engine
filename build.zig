@@ -79,12 +79,12 @@ pub fn build(b: *std.Build) !void {
 
     run_cmd.step.dependOn(example_step);
 
-    // run_cmd.addArgs(&.{
-    //     "--hot",
-    //     "--game",
-    // });
-    //
-    // run_cmd.addArtifactArg(example_lib);
+    run_cmd.addArgs(&.{
+        "--hot",
+        "--game",
+    });
+
+    run_cmd.addArtifactArg(example_lib);
 
     if (b.args) |args| {
         run_cmd.addArgs(args);

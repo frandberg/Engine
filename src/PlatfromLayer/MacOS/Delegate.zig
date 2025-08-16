@@ -90,10 +90,12 @@ pub fn checkAndClearResized(self: Delegate) bool {
 fn windowShouldClose(delegate: objc.c.id, _: objc.c.SEL, _: objc.c.id) callconv(.c) bool {
     var flags = flagsPtr(delegate);
     flags.window_closed = true;
+    std.debug.print("Window should close\n", .{});
     return true;
 }
 
 fn windowDidResize(delegate: objc.c.id, _: objc.c.SEL, _: objc.c.id) callconv(.c) void {
     var flags = flagsPtr(delegate);
     flags.window_resized = true;
+    std.debug.print("Window resized\n", .{});
 }

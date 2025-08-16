@@ -11,10 +11,12 @@ const c = @cImport({
     @cInclude("pthread.h");
 });
 
+const log = std.log.scoped(.platfrom_layer);
+
 const Object = objc.Object;
 const nil: objc.c.id = @ptrFromInt(0);
 
-extern const NSDefaultRunLoopMode: objc.c.id; // points to @"NSDefaultRunLoopMode"
+extern const NSDefaultRunLoopMode: objc.c.id;
 
 const Delegate = @import("Delegate.zig");
 const GameCode = @import("GameCode.zig");
@@ -23,6 +25,7 @@ const DeviceInfo = @import("DeviceInfo.zig");
 const Time = @import("Time.zig");
 const GameMemory = glue.GameMemory;
 const FramebufferPool = common.FramebufferPool;
+const CocoaContext = @import("CocoaContext.zig");
 
 const Application = @This();
 
@@ -41,10 +44,7 @@ running: AtomicBool = AtomicBool.init(false),
 mtl_context: MetalContext,
 framebuffer_pool: FramebufferPool,
 
-NSApp: Object,
-NSWindow: Object,
-delegate: Delegate,
-
+cocoa_context: CocoaContext,
 device_info: DeviceInfo,
 
 pub fn init(allocator: std.mem.Allocator, window_width: u32, window_height: u32) !Application {
@@ -78,62 +78,25 @@ pub fn init(allocator: std.mem.Allocator, window_width: u32, window_height: u32)
 
     game_code.initGameMemory(&game_memory);
 
-    const delegate = Delegate.init();
-    errdefer delegate.deinit();
-
-    const NSApp = objc.getClass("NSApplication").?.msgSend(Object, "sharedApplication", .{});
-
-    NSApp.msgSend(void, "setActivationPolicy:", .{@as(usize, 0)}); // NSApplicationActivationPolicyRegular
-    NSApp.msgSend(void, "setDelegate:", .{delegate.object.value});
-
-    const window_rect = c.CGRectMake(
-        0, // x
-        0, // y
-        @as(c.CGFloat, @floatFromInt(window_width)),
-        @as(c.CGFloat, @floatFromInt(window_height)),
-    );
-
-    const NSWindow = objc.getClass("NSWindow").?.msgSend(
-        Object,
-        "alloc",
-        .{},
-    ).msgSend(
-        Object,
-        "initWithContentRect:styleMask:backing:defer:",
-        .{
-            window_rect,
-            @as(usize, 15), // NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
-            @as(usize, 2), // NSBackingStoreBuffered
-            false, // d
-        },
-    );
-
-    errdefer NSWindow.msgSend(void, "release", .{});
-
-    const view: Object = NSWindow.msgSend(Object, "contentView", .{});
-    const view_bounds = view.msgSend(c.CGRect, "bounds", .{});
-
     const framebuffer_pool = try FramebufferPool.init(
         allocator,
         .{
             .max_width = device_info.display_width,
             .max_height = device_info.display_height,
-            .width = @intFromFloat(view_bounds.size.width),
-            .height = @intFromFloat(view_bounds.size.height),
+            .width = window_width,
+            .height = window_height,
         },
     );
     errdefer framebuffer_pool.deinit(allocator);
 
     const mtl_context = MetalContext.init(framebuffer_pool.backing_memory);
+    errdefer mtl_context.deinit();
 
-    NSWindow.msgSend(void, "setDelegate:", .{delegate.object.value});
-    NSWindow.msgSend(void, "makeKeyAndOrderFront:", .{nil});
-
-    NSApp.msgSend(void, "finishLaunching", .{});
-    NSApp.msgSend(void, "activateIgnoringOtherApps:", .{true});
-
-    view.msgSend(void, "setWantsLayer:", .{true});
-    view.msgSend(void, "setLayer:", .{mtl_context.layer.value});
+    const cocoa_context = CocoaContext.init(.{
+        .width = window_width,
+        .height = window_height,
+    }, mtl_context.layer);
+    errdefer cocoa_context.deinit();
 
     std.log.info("Application initialized", .{});
 
@@ -144,27 +107,22 @@ pub fn init(allocator: std.mem.Allocator, window_width: u32, window_height: u32)
         .time = time,
         .mtl_context = mtl_context,
         .framebuffer_pool = framebuffer_pool,
-        .NSApp = NSApp,
-        .NSWindow = NSWindow,
-        .delegate = delegate,
+        .cocoa_context = cocoa_context,
         .device_info = device_info,
     };
 }
 
 pub fn deinit(self: *Application, allocator: std.mem.Allocator) void {
-    std.debug.print("deinit Application\n", .{});
-    self.delegate.deinit();
-    self.NSWindow.msgSend(void, "release", .{});
-
+    self.cocoa_context.deinit();
     self.game_code = .stub;
     if (self.game_code_loader) |*loader| {
         loader.deinit(allocator);
     }
-
     self.framebuffer_pool.deinit(allocator);
     self.mtl_context.deinit();
-
     self.game_memory.deinit(allocator);
+
+    std.log.info("Application deinitialized\n", .{});
 }
 
 pub fn run(self: *Application) !void {
@@ -223,10 +181,7 @@ fn cocoaLoop(self: *Application) void {
     const mtl_context = &self.mtl_context;
 
     while (self.running.load(.seq_cst)) {
-        if (nextEvent(self.NSApp, event_timeout_seconds)) |event| {
-            self.NSApp.msgSend(void, "sendEvent:", .{event});
-            self.NSApp.msgSend(void, "updateWindows", .{});
-        }
+        self.cocoa_context.processEvents();
         const framebuffer_index = framebuffer_pool.ready_index.load(.seq_cst);
         if (framebuffer_index != FramebufferPool.invalid_framebuffer_index) {
             _ = framebuffer_pool.ready_index.cmpxchgStrong(
@@ -273,11 +228,11 @@ fn dateSinceNow(seconds: f64) objc.c.id {
 }
 
 fn updateState(self: *Application) void {
-    if (self.delegate.checkAndClearResized()) {
+    if (self.cocoa_context.delegate.checkAndClearResized()) {
         std.debug.print("Window resized\n", .{});
         self.pending_resize = true;
     }
-    if (self.delegate.closed()) {
+    if (self.cocoa_context.delegate.closed()) {
         std.debug.print("Window closed\n", .{});
         self.running.store(false, .seq_cst);
     }

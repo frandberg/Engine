@@ -46,9 +46,10 @@ pub const Framebuffer = struct {
 };
 
 backing_memory: []u32,
-framebuffers: [buffer_count]Framebuffer,
+// framebuffers: [buffer_count]Framebuffer,
 ready_index: AtomicUSize = AtomicUSize.init(invalid_framebuffer_index),
 present_index: AtomicUSize = AtomicUSize.init(invalid_framebuffer_index),
+buffer_count: u32,
 
 state_of_buffers: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
 
