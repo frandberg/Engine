@@ -27,7 +27,7 @@ const MTLOrigin = extern struct {
 device: Object,
 command_queue: Object,
 layer: Object,
-backing_frame_buffers: Object,
+frame_buffers: Object,
 
 pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
     const device = Object.fromId(MTLCreateSystemDefaultDevice());
@@ -44,7 +44,7 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
     std.debug.assert(layer.value != nil);
     layer.msgSend(void, "setDevice:", .{device.value});
 
-    const backing_frame_buffers = device.msgSend(
+    const frame_buffers = device.msgSend(
         Object,
         "newBufferWithBytesNoCopy:length:options:deallocator:",
         .{
@@ -54,13 +54,13 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
             nil,
         },
     );
-    std.debug.assert(backing_frame_buffers.value != nil);
+    std.debug.assert(frame_buffers.value != nil);
 
     return .{
         .device = device,
         .command_queue = command_queue,
         .layer = layer,
-        .backing_frame_buffers = backing_frame_buffers,
+        .frame_buffers = frame_buffers,
     };
 }
 
@@ -71,8 +71,7 @@ pub fn deinit(self: *MetalContext) void {
 
 pub fn blitAndPresentFramebuffer(
     self: *const MetalContext,
-    framebuffer_pool: *const FramebufferPool,
-    framebuffer_index: usize,
+    framebuffer: *const Framebuffer,
 ) void {
     const drawable = self.layer.msgSend(Object, "nextDrawable", .{});
     if (drawable.value == nil) {
@@ -91,7 +90,12 @@ pub fn blitAndPresentFramebuffer(
         .{},
     );
 
-    blit(self.backing_frame_buffers, cmd_buffer, dst_texture, framebuffer_pool, framebuffer_index);
+    blit(
+        self.frame_buffers,
+        cmd_buffer,
+        dst_texture,
+        framebuffer,
+    );
 
     cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
     cmd_buffer.msgSend(void, "commit", .{});
@@ -102,15 +106,16 @@ fn blit(
     mtl_buffer: Object,
     cmd_buffer: Object,
     dst_texture: Object,
-    framebuffer_pool: *const FramebufferPool,
-    framebuffer_index: usize,
+    framebuffer: *const Framebuffer,
 ) void {
-    const framebuffer = framebuffer_pool.framebuffers[framebuffer_index];
     const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
+
+    const base_ptr: usize = @intFromPtr(mtl_buffer.msgSend(*anyopaque, "contents", .{}));
+    const offset: usize = @intFromPtr(framebuffer.memory.ptr) - base_ptr;
 
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{
         mtl_buffer,
-        framebuffer_pool.bufferOffset(framebuffer_index),
+        offset,
         framebuffer.pitch(),
         framebuffer.size(),
         MTLSize{

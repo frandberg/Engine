@@ -165,7 +165,6 @@ pub const Delegate = struct {
     fn windowShouldClose(delegate: objc.c.id, _: objc.c.SEL, _: objc.c.id) callconv(.c) bool {
         var flags = flagsPtr(delegate);
         flags.window_closed = true;
-        std.debug.print("Window should close\n", .{});
         return true;
     }
 
@@ -179,10 +178,7 @@ pub const Delegate = struct {
 pub fn processEvents(self: *CocoaContext) void {
     while (nextEvent(self.app, 0.001)) |event| {
         self.app.msgSend(void, "sendEvent:", .{event});
-        std.debug.print("before\n", .{});
         self.app.msgSend(void, "updateWindows", .{});
-
-        std.debug.print("after\n", .{});
     }
 }
 
