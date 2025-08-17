@@ -43,6 +43,9 @@ pub fn init(window_size: Size, layer: Object) CocoaContext {
         @as(c.CGFloat, @floatFromInt(window_size.height)),
     );
 
+    // const screen = objc.getClass("NSScreen").?.msgSend(Object, "mainScreen", .{});
+    // const window_rect_in_pts = screen.msgSend(c.CGRect, "convertRectFromBacking:", .{window_rect});
+
     const window = objc.getClass("NSWindow").?.msgSend(
         Object,
         "alloc",
@@ -60,16 +63,18 @@ pub fn init(window_size: Size, layer: Object) CocoaContext {
 
     errdefer window.msgSend(void, "release", .{});
 
-    const view: Object = window.msgSend(Object, "contentView", .{});
-
     window.msgSend(void, "setDelegate:", .{delegate.object.value});
     window.msgSend(void, "makeKeyAndOrderFront:", .{nil});
 
-    app.msgSend(void, "finishLaunching", .{});
-    app.msgSend(void, "activateIgnoringOtherApps:", .{true});
+    const view: Object = window.msgSend(Object, "contentView", .{});
 
     view.msgSend(void, "setWantsLayer:", .{true});
     view.msgSend(void, "setLayer:", .{layer.value});
+    const bounds = view.msgSend(c.CGRect, "bounds", .{});
+    layer.msgSend(void, "setDrawableSize:", .{bounds.size});
+
+    app.msgSend(void, "finishLaunching", .{});
+    app.msgSend(void, "activateIgnoringOtherApps:", .{true});
 
     return .{
         .app = app,
@@ -83,11 +88,19 @@ pub fn deinit(self: *CocoaContext) void {
     self.window.msgSend(void, "release", .{});
 }
 pub fn windowViewSize(self: *const CocoaContext) Size {
+    // const screen = objc.getClass("NSScreen").?.msgSend(Object, "mainScreen", .{});
     const view = self.window.msgSend(Object, "contentView", .{});
-    const rect = view.msgSend(c.CGRect, "bounds", .{});
+
+    const bounds: c.CGRect = view.msgSend(c.CGRect, "bounds", .{});
+    // const size: c.CGSize = view.msgSend(
+    //     c.CGRect,
+    //     "convertRectToBacking:",
+    //     .{ bounds, @as(usize, 1) },
+    // ).size;
+
     return .{
-        .width = @intFromFloat(rect.size.width),
-        .height = @intFromFloat(rect.size.height),
+        .width = @intFromFloat(bounds.size.width),
+        .height = @intFromFloat(bounds.size.height),
     };
 }
 
@@ -171,7 +184,6 @@ pub const Delegate = struct {
     fn windowDidResize(delegate: objc.c.id, _: objc.c.SEL, _: objc.c.id) callconv(.c) void {
         var flags = flagsPtr(delegate);
         flags.window_resized = true;
-        std.debug.print("Window did resize\n", .{});
     }
 };
 

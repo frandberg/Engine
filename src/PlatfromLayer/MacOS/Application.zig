@@ -146,7 +146,7 @@ fn gameLoop(self: *Application, delta_time_s: f64) void {
     const framebuffer_pool = &self.framebuffer_pool;
 
     while (self.running.load(.seq_cst)) {
-        if (self.framebuffer_pool.acquireNextFreeBuffer()) |framebuffer| {
+        if (framebuffer_pool.acquireNextFreeBuffer()) |framebuffer| {
             framebuffer.clear(0);
             self.game_code.updateAndRender(
                 &framebuffer.glueBuffer(),
@@ -180,16 +180,17 @@ fn cocoaLoop(self: *Application) void {
         }
         self.updateState();
     }
-    std.debug.print("cocoa loop exited\n", .{});
+    log.debug("cocoa loop exited\n", .{});
 }
 
 fn updateState(self: *Application) void {
     if (self.cocoa_context.delegate.checkAndClearResized()) {
-        std.debug.print("Window resized\n", .{});
-        self.framebuffer_pool.pending_resize.store(true, .release);
+        const size = self.cocoa_context.windowViewSize();
+        self.mtl_context.resizeLayer(size.width, size.height);
+        self.framebuffer_pool.resize(size.width, size.height);
     }
     if (self.cocoa_context.delegate.closed()) {
-        std.debug.print("Window closed\n", .{});
+        log.debug("Window closed\n", .{});
         self.running.store(false, .seq_cst);
     }
 }

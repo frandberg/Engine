@@ -5,6 +5,11 @@ const common = @import("common");
 const FramebufferPool = common.FramebufferPool;
 const Framebuffer = common.Framebuffer;
 
+const CGSize = extern struct {
+    width: f64,
+    height: f64,
+};
+
 const Object = objc.Object;
 const nil: objc.c.id = @ptrFromInt(0);
 
@@ -67,6 +72,15 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
 pub fn deinit(self: *MetalContext) void {
     self.command_queue.msgSend(void, "release", .{});
     self.layer.msgSend(void, "release", .{});
+}
+
+pub fn resizeLayer(self: *const MetalContext, width: u32, height: u32) void {
+    self.layer.msgSend(void, "setDrawableSize:", .{
+        CGSize{
+            .width = @floatFromInt(width),
+            .height = @floatFromInt(height),
+        },
+    });
 }
 
 pub fn blitAndPresentFramebuffer(

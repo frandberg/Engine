@@ -13,14 +13,8 @@ pub export fn initGameMemory(game_memory: *const glue.GameMemory) callconv(.c) v
 var frame_mem: [2][]u32 = undefined;
 pub export fn updateAndRender(buffer: ?*const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory) void {
     const game_state: *GameState = @alignCast(@ptrCast(game_memory.permanent_storage));
-    // const red: f32 = @as(f32, @floatFromInt(game_state.frame % 255)) / 255.0;
-    const red: f32 = 1.0;
+    const red: f32 = @as(f32, @floatFromInt(game_state.frame % 255)) / 255.0;
     if (buffer) |buff| {
-        // @memset(buff.memory[0 .. buff.width * buff.height], 0);
-        // if (buff.memory[0] != 0) {
-        //     std.debug.print("Buffer memory is not zeroed, frame: {}\n", .{game_state.frame});
-        //     unreachable;
-        // }
         drawRectangle(buff, .{
             .x = 0.5,
             .y = 0.5,
