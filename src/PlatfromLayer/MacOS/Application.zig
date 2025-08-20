@@ -1,9 +1,8 @@
 const std = @import("std");
 const objc = @import("objc");
-const glue = @import("glue");
-const options = @import("options");
 
 const common = @import("common");
+const engine = @import("Engine");
 
 const c = @cImport({
     @cInclude("CoreGraphics/CoreGraphics.h");
@@ -22,14 +21,16 @@ const GameCode = @import("GameCode.zig");
 const MetalContext = @import("MetalContext.zig");
 const DeviceInfo = @import("DeviceInfo.zig");
 const Time = @import("Time.zig");
-const GameMemory = glue.GameMemory;
-const FramebufferPool = common.FramebufferPool;
+const GameMemory = engine.GameMemory;
+const Renderer = common.Renderer;
 const CocoaContext = @import("CocoaContext.zig");
 
 const Application = @This();
 
 const AtomicUsize = std.atomic.Value(usize);
 const AtomicBool = std.atomic.Value(bool);
+
+allocator: std.mem.Allocator,
 
 game_code: GameCode,
 game_code_loader: ?GameCode.Loader,
@@ -41,7 +42,7 @@ pending_resize: bool = false,
 running: AtomicBool = AtomicBool.init(false),
 
 mtl_context: MetalContext,
-framebuffer_pool: FramebufferPool,
+renderer: Renderer,
 
 cocoa_context: CocoaContext,
 device_info: DeviceInfo,
@@ -72,24 +73,23 @@ pub fn init(allocator: std.mem.Allocator, window_width: u32, window_height: u32)
     else
         GameCode.stub;
 
-    const game_memory = try glue.GameMemory.init(allocator);
+    const game_memory = try engine.GameMemory.init(allocator);
     errdefer game_memory.deinit(allocator);
 
     game_code.initGameMemory(&game_memory);
 
-    const framebuffer_pool = try FramebufferPool.init(
+    const renderer = try Renderer.init(
         allocator,
         .{
-            .buffer_count = 3,
             .max_width = device_info.display_width,
             .max_height = device_info.display_height,
             .width = window_width,
             .height = window_height,
         },
     );
-    errdefer framebuffer_pool.deinit(allocator);
+    errdefer renderer.deinit(allocator);
 
-    const mtl_context = MetalContext.init(framebuffer_pool.backing_memory);
+    const mtl_context = MetalContext.init(renderer.framebuffer_pool.backing_memory);
     errdefer mtl_context.deinit();
 
     const cocoa_context = CocoaContext.init(.{
@@ -98,35 +98,42 @@ pub fn init(allocator: std.mem.Allocator, window_width: u32, window_height: u32)
     }, mtl_context.layer);
     errdefer cocoa_context.deinit();
 
-    std.log.info("Application initialized", .{});
+    log.info("Application initialized", .{});
 
     return .{
+        .allocator = allocator,
         .game_code = game_code,
         .game_code_loader = game_code_loader,
         .game_memory = game_memory,
         .time = time,
         .mtl_context = mtl_context,
-        .framebuffer_pool = framebuffer_pool,
+        .renderer = renderer,
         .cocoa_context = cocoa_context,
         .device_info = device_info,
     };
 }
 
-pub fn deinit(self: *Application, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *Application) void {
     self.cocoa_context.deinit();
     self.game_code = .stub;
     if (self.game_code_loader) |*loader| {
-        loader.deinit(allocator);
+        loader.deinit(self.allocator);
     }
-    self.framebuffer_pool.deinit(allocator);
+    self.renderer.deinit(self.allocator);
     self.mtl_context.deinit();
-    self.game_memory.deinit(allocator);
+    self.game_memory.deinit(self.allocator);
 
-    std.log.info("Application deinitialized\n", .{});
+    log.info("Application deinitialized", .{});
 }
 
 pub fn run(self: *Application) !void {
     self.running.store(true, .seq_cst);
+
+    const render_thread = try std.Thread.spawn(.{}, Renderer.renderLoop, .{
+        &self.renderer,
+        &self.running,
+    });
+    render_thread.detach();
 
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
         self,
@@ -143,54 +150,43 @@ fn gameLoop(self: *Application, delta_time_s: f64) void {
         delta_time_s,
     );
 
-    const framebuffer_pool = &self.framebuffer_pool;
-
-    while (self.running.load(.seq_cst)) {
-        if (framebuffer_pool.acquireNextFreeBuffer()) |framebuffer| {
-            framebuffer.clear(0);
-            self.game_code.updateAndRender(
-                &framebuffer.glueBuffer(),
-                &self.game_memory,
-                delta_time_s,
-            );
-
-            framebuffer_pool.releaseBufferAndMakeReady(&framebuffer);
-        } else {
-            self.game_code.updateAndRender(
-                null,
-                &self.game_memory,
-                delta_time_s,
-            );
-        }
-
+    while (self.running.load(.monotonic)) {
+        const render_command_buffer = self.renderer.acquireCommandBuffer() orelse unreachable;
+        self.game_code.updateAndRender(
+            render_command_buffer,
+            &self.game_memory,
+            delta_time_s,
+        );
+        self.renderer.submitCommandBuffer(render_command_buffer);
         timer.wait();
     }
+    log.info("game loop exited", .{});
 }
 
 const event_timeout_seconds: f64 = 0.001;
 fn cocoaLoop(self: *Application) void {
-    const framebuffer_pool = &self.framebuffer_pool;
     const mtl_context = &self.mtl_context;
+    const framebuffer_pool = &self.renderer.framebuffer_pool;
 
-    while (self.running.load(.seq_cst)) {
+    while (self.running.load(.monotonic)) {
         self.cocoa_context.processEvents();
-        if (self.framebuffer_pool.acquireReadyBuffer()) |framebuffer| {
+
+        if (framebuffer_pool.acquireReadyBuffer()) |framebuffer| {
             mtl_context.blitAndPresentFramebuffer(&framebuffer);
-            framebuffer_pool.releaseBuffer(&framebuffer);
+            framebuffer_pool.releaseBuffer(framebuffer);
         }
         self.updateState();
     }
-    log.debug("cocoa loop exited\n", .{});
+    log.info("cocoa loop exited", .{});
 }
 
 fn updateState(self: *Application) void {
     if (self.cocoa_context.delegate.checkAndClearResized()) {
         const size = self.cocoa_context.windowViewSize();
         self.mtl_context.resizeLayer(size.width, size.height);
-        self.framebuffer_pool.resize(size.width, size.height);
+        self.renderer.framebuffer_pool.resize(size.width, size.height);
     }
     if (self.cocoa_context.delegate.closed()) {
-        log.debug("Window closed\n", .{});
         self.running.store(false, .seq_cst);
     }
 }

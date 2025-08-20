@@ -1,7 +1,6 @@
 const std = @import("std");
 const objc = @import("objc");
 
-const glue = @import("glue");
 const common = @import("common");
 
 extern fn MTLCreateSystemDefaultDevice() objc.c.id;
@@ -92,11 +91,6 @@ pub fn windowViewSize(self: *const CocoaContext) Size {
     const view = self.window.msgSend(Object, "contentView", .{});
 
     const bounds: c.CGRect = view.msgSend(c.CGRect, "bounds", .{});
-    // const size: c.CGSize = view.msgSend(
-    //     c.CGRect,
-    //     "convertRectToBacking:",
-    //     .{ bounds, @as(usize, 1) },
-    // ).size;
 
     return .{
         .width = @intFromFloat(bounds.size.width),

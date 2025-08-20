@@ -2,8 +2,9 @@ const std = @import("std");
 const objc = @import("objc");
 
 const common = @import("common");
-const FramebufferPool = common.FramebufferPool;
 const Framebuffer = common.Framebuffer;
+
+const log = std.log.scoped(.MetalContext);
 
 const CGSize = extern struct {
     width: f64,
@@ -54,7 +55,7 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
         "newBufferWithBytesNoCopy:length:options:deallocator:",
         .{
             @as(*const anyopaque, backing_frame_buffer_mem.ptr),
-            @as(usize, backing_frame_buffer_mem.len * FramebufferPool.bytes_per_pixel),
+            @as(usize, backing_frame_buffer_mem.len * Framebuffer.bytes_per_pixel),
             @as(usize, 0), // MTLResourceStorageModeShared
             nil,
         },
@@ -126,6 +127,15 @@ fn blit(
 
     const base_ptr: usize = @intFromPtr(mtl_buffer.msgSend(*anyopaque, "contents", .{}));
     const offset: usize = @intFromPtr(framebuffer.memory.ptr) - base_ptr;
+    std.debug.assert(!std.mem.allEqual(u32, framebuffer.memory, 0));
+
+    // var count: usize = 0;
+    // var values: []
+    // for (framebuffer.memory) |pixel| {
+    //     if (pixel != 0) {
+    //         count += 1;
+    //     }
+    // }
 
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{
         mtl_buffer,

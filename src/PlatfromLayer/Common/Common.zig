@@ -1,3 +1,3 @@
 pub const Args = @import("Args.zig");
-pub const FramebufferPool = @import("FramebufferPool.zig");
-pub const Framebuffer = FramebufferPool.Framebuffer;
+pub const Renderer = @import("SofwareRenderer/Renderer.zig");
+pub const Framebuffer = @import("SofwareRenderer/FramebufferPool.zig").Framebuffer;

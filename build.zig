@@ -9,8 +9,8 @@ pub fn build(b: *std.Build) !void {
         else => @panic("Unsupported OS"),
     };
 
-    const glue = b.addModule("glue", .{
-        .root_source_file = b.path("src/glue.zig"),
+    const engine = b.addModule("Engine", .{
+        .root_source_file = b.path("src/Engine/Engine.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    platfrom_layer_common.addImport("glue", glue);
+    platfrom_layer_common.addImport("Engine", engine);
 
     const exe_mod = b.createModule(
         .{
@@ -29,8 +29,8 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         },
     );
-    exe_mod.addImport("glue", glue);
     exe_mod.addImport("common", platfrom_layer_common);
+    exe_mod.addImport("Engine", engine);
 
     if (target.result.os.tag == .macos) {
         const objc_dep = b.dependency("objc", .{});
@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    example_mod.addImport("glue", glue);
+    example_mod.addImport("Engine", engine);
 
     const example_lib = b.addLibrary(.{
         .name = "example",

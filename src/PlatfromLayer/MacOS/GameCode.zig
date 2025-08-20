@@ -1,5 +1,5 @@
 const std = @import("std");
-const glue = @import("glue");
+const engine = @import("Engine");
 
 const options = @import("options");
 
@@ -10,12 +10,12 @@ const nil: objc.c.id = @ptrFromInt(0);
 
 const GameCode = @This();
 
-init_game_memory_fn: *const glue.IntiGameMemoryFn,
-update_and_render_fn: *const glue.UpdateAndRenderFn,
+init_game_memory_fn: *const engine.IntiGameMemoryFn,
+update_and_render_fn: *const engine.UpdateAndRenderFn,
 
 pub const stub: GameCode = .{
-    .init_game_memory_fn = glue.IntiGameMemoryStub,
-    .update_and_render_fn = glue.updateAndRenderStub,
+    .init_game_memory_fn = engine.IntiGameMemoryStub,
+    .update_and_render_fn = engine.updateAndRenderStub,
 };
 
 pub const Loader = struct {
@@ -95,8 +95,8 @@ pub const Loader = struct {
         }
 
         if (self.handle) |*handle| {
-            const init_game_memory_fn = handle.lookup(*const glue.IntiGameMemoryFn, "initGameMemory") orelse return error.FailedToLoadLibFunc;
-            const update_and_render_fn = handle.lookup(*const glue.UpdateAndRenderFn, "updateAndRender") orelse return error.FailedToLoadLibFunc;
+            const init_game_memory_fn = handle.lookup(*const engine.IntiGameMemoryFn, "initGameMemory") orelse return error.FailedToLoadLibFunc;
+            const update_and_render_fn = handle.lookup(*const engine.UpdateAndRenderFn, "updateAndRender") orelse return error.FailedToLoadLibFunc;
 
             return .{
                 .init_game_memory_fn = @alignCast(@ptrCast(init_game_memory_fn)),
@@ -128,11 +128,20 @@ pub const Loader = struct {
     }
 };
 
-pub fn updateAndRender(self: *const GameCode, buffer: ?*const glue.OffscreenBufferBGRA8, game_memory: *const glue.GameMemory, delta_time_s: f64) void {
-    self.update_and_render_fn(buffer, game_memory, delta_time_s);
+pub fn updateAndRender(
+    self: *const GameCode,
+    render_command_buffer: *engine.RenderCommandBuffer,
+    game_memory: *const engine.GameMemory,
+    delta_time_s: f64,
+) void {
+    self.update_and_render_fn(
+        render_command_buffer,
+        game_memory,
+        delta_time_s,
+    );
 }
 
-pub fn initGameMemory(self: *const GameCode, game_memory: *const glue.GameMemory) void {
+pub fn initGameMemory(self: *const GameCode, game_memory: *const engine.GameMemory) void {
     self.init_game_memory_fn(game_memory);
 }
 
