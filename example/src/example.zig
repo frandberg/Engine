@@ -39,7 +39,7 @@ pub export fn updateAndRender(
         render_command_buffer.appendCommand(.{
             .draw_rect = .{
                 .rect = rect,
-                .color = .{ 1.0, 0.5, 0.3, 1.0 },
+                .color = .{ 0.6, 0.0, 0.7, 1.0 },
             },
         }) catch @panic("Failed to record draw command");
 

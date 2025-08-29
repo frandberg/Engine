@@ -14,9 +14,6 @@ pub fn get() Args {
     var arg_iter = std.process.args();
 
     while (arg_iter.next()) |arg| {
-        if (eql("-h", arg) or eql("--hot", arg)) {
-            args.hot_reload = true;
-        }
         if (eql("-g", arg) or eql("--game", arg) or eql("--game-lib", arg)) {
             const game_lib = arg_iter.next();
             if (game_lib) |lib| {

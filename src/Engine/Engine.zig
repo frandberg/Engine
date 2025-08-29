@@ -1,4 +1,4 @@
-const std = @import("std");
+pub const std = @import("std");
 
 pub const RenderCommandBuffer = @import("RenderCommandBuffer.zig");
 pub const math = @import("math.zig");

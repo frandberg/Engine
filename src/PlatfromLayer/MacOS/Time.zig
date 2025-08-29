@@ -5,12 +5,14 @@ const c = @cImport({
 
 const Time = @This();
 
+const log = std.log.scoped(.Time);
+
 timebase_info: c.mach_timebase_info_data_t,
 
 pub const RepeatingTimer = struct {
     time: *const Time,
     start_time: u64,
-    delta_time: u64,
+    time_step: u64,
     iteration: usize = 1,
 
     profile_info: ProfileInfo = .{},
@@ -19,23 +21,27 @@ pub const RepeatingTimer = struct {
         last_wait_time: f64 = 0,
 
         pub fn lastCycleTime(self: *const ProfileInfo) f64 {
-            return self.last_wait_time - ticksToSeconds(now());
+            return self.last_wait_time - ticksToSeconds(c.mach_absolute_time());
         }
     };
 
-    pub fn initAndStart(time: *const Time, delta_time_seconds: f64) RepeatingTimer {
+    pub fn initAndStart(time: *const Time, time_step_seconds: f64) RepeatingTimer {
         return .{
             .time = time,
             .start_time = c.mach_absolute_time(),
-            .delta_time = time.secondsToTicks(delta_time_seconds),
+            .time_step = time.secondsToTicks(time_step_seconds),
         };
     }
 
     pub fn wait(self: *RepeatingTimer) void {
-        const wait_time = self.start_time + self.delta_time * self.iteration;
+        const wait_time = self.start_time + self.time_step * self.iteration;
         defer _ = c.mach_wait_until(wait_time);
 
-        std.debug.assert(wait_time >= c.mach_absolute_time());
+        const now = c.mach_absolute_time();
+        if (wait_time < now) {
+            log.warn("Timer overrun detected! Iteration: {}\n", .{self.iteration});
+            self.iteration += (now - wait_time) / self.time_step;
+        }
         self.profile_info.last_wait_time = self.time.ticksToSeconds(wait_time);
 
         self.iteration += 1;
@@ -54,12 +60,8 @@ pub fn init() Time {
     };
 }
 
-pub fn now() u64 {
-    return c.mach_absolute_time();
-}
-
 pub fn nowSeconds(self: *const Time) f64 {
-    return self.ticksToSeconds(now());
+    return self.ticksToSeconds(c.mach_absolute_time());
 }
 
 fn ticksToSeconds(self: *const Time, ticks: u64) f64 {

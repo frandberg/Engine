@@ -31,7 +31,7 @@ framebuffer_pool: FramebufferPool align(8),
 command_buffers: [2]CommandBuffer,
 cmd_buffer_backing_mem: []Command,
 
-start_render: std.Thread.Semaphore = .{},
+wake_up: std.Thread.Semaphore = .{},
 
 state: Atomic(State) align(8) = Atomic(State).init(.{}),
 
@@ -60,23 +60,23 @@ pub fn init(allocator: std.mem.Allocator, fbp_info: FramebufferPool.Info) !Rende
     };
 }
 
-pub fn deinit(self: *Renderer, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *const Renderer, allocator: std.mem.Allocator) void {
     allocator.free(self.cmd_buffer_backing_mem);
-    self.command_buffers[0].deinit();
-    self.command_buffers[1].deinit();
     self.framebuffer_pool.deinit(allocator);
 }
 
 pub fn renderLoop(self: *Renderer, is_running: *Atomic(bool)) void {
-    while (is_running.load(.monotonic)) {
-        self.start_render.wait();
+    while (true) {
+        self.wake_up.wait();
+        if (is_running.load(.monotonic) == false) {
+            break;
+        }
         const framebuffer = self.framebuffer_pool.acquireNextFreeBuffer() orelse continue;
         defer self.framebuffer_pool.releaseBufferAndMakeReady(framebuffer);
         framebuffer.clear(0);
 
         const command_buffer = self.begin() orelse continue;
         defer self.end(command_buffer);
-        defer command_buffer.reset();
 
         for (command_buffer.bufferSlice()) |command| {
             executeCommand(command, framebuffer);
@@ -91,7 +91,7 @@ pub fn submitCommandBuffer(self: *Renderer, command_buffer: *const CommandBuffer
         return;
     }
     self.releaseCommandBufferAndMakeReady(command_buffer);
-    self.start_render.post();
+    self.wake_up.post();
 }
 
 pub fn resizeFramebuffers(self: *Renderer) void {
@@ -131,13 +131,13 @@ fn begin(self: *Renderer) ?*CommandBuffer {
             state = new_state;
         } else {
             const index = @ctz(acquire_index_bit);
-            // log.debug("begin rendering with index: {}", .{index});
             return &self.command_buffers[index];
         }
     }
 }
 
 fn end(self: *Renderer, command_buffer: *CommandBuffer) void {
+    command_buffer.reset();
     var state = self.state.load(.acquire);
 
     while (true) {

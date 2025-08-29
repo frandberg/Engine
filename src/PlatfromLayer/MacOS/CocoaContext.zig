@@ -9,6 +9,8 @@ const c = @cImport({
     @cInclude("CoreFoundation/CoreFoundation.h");
 });
 
+const log = std.log.scoped(.CocoaContext);
+
 const CocoaContext = @This();
 
 const Object = objc.Object;
@@ -82,7 +84,7 @@ pub fn init(window_size: Size, layer: Object) CocoaContext {
     };
 }
 
-pub fn deinit(self: *CocoaContext) void {
+pub fn deinit(self: *const CocoaContext) void {
     self.delegate.deinit();
     self.window.msgSend(void, "release", .{});
 }
@@ -182,8 +184,15 @@ pub const Delegate = struct {
 };
 
 pub fn processEvents(self: *CocoaContext) void {
-    while (nextEvent(self.app, 0.001)) |event| {
-        self.app.msgSend(void, "sendEvent:", .{event});
+    while (nextEvent(self.app, 0.001)) |event_id| {
+        const event = objc.Object.fromId(event_id);
+        if (event.msgSend(usize, "type", .{}) == 10) {
+            const key_code = event.msgSend(u16, "keyCode", .{});
+            if (key_code == 0) {
+                log.info("A key pressed", .{});
+            }
+        }
+        self.app.msgSend(void, "sendEvent:", .{event_id});
         self.app.msgSend(void, "updateWindows", .{});
     }
 }

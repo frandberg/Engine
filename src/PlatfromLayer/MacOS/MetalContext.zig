@@ -70,7 +70,7 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
     };
 }
 
-pub fn deinit(self: *MetalContext) void {
+pub fn deinit(self: *const MetalContext) void {
     self.command_queue.msgSend(void, "release", .{});
     self.layer.msgSend(void, "release", .{});
 }
@@ -127,15 +127,6 @@ fn blit(
 
     const base_ptr: usize = @intFromPtr(mtl_buffer.msgSend(*anyopaque, "contents", .{}));
     const offset: usize = @intFromPtr(framebuffer.memory.ptr) - base_ptr;
-    std.debug.assert(!std.mem.allEqual(u32, framebuffer.memory, 0));
-
-    // var count: usize = 0;
-    // var values: []
-    // for (framebuffer.memory) |pixel| {
-    //     if (pixel != 0) {
-    //         count += 1;
-    //     }
-    // }
 
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{
         mtl_buffer,
