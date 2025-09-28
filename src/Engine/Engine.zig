@@ -2,6 +2,7 @@ pub const std = @import("std");
 
 pub const RenderCommandBuffer = @import("RenderCommandBuffer.zig");
 pub const math = @import("math.zig");
+pub const Input = @import("Input.zig");
 
 pub const GameMemory = @import("GameMemory.zig").GameMemory;
 
@@ -13,4 +14,4 @@ pub const UpdateAndRenderFn = fn (
 ) callconv(.c) void;
 
 pub fn updateAndRenderStub(_: *RenderCommandBuffer, _: *const GameMemory, _: f64) callconv(.c) void {}
-pub fn IntiGameMemoryStub(_: *const GameMemory) callconv(.c) void {}
+pub fn initGameMemoryStub(_: *const GameMemory) callconv(.c) void {}

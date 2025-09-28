@@ -22,8 +22,8 @@ const max_frames_in_flight: usize = 2;
 
 pub const State = packed struct(u8) {
     is_rendering: bool = false,
-    indices_in_use: u2 = 0,
-    ready_index: u2 = 0,
+    in_use_index_bits: u2 = 0,
+    ready_index_bits: u2 = 0,
     _reserved: u3 = 0,
 };
 
@@ -111,19 +111,19 @@ fn begin(self: *Renderer) ?*CommandBuffer {
 
     while (true) {
         assertStateValid(state);
-        if (state.ready_index == 0) {
+        if (state.ready_index_bits == 0) {
             return null;
         }
-        const acquire_index_bit = state.ready_index;
+        const acquire_index_bit = state.ready_index_bits;
         assert(!state.is_rendering);
-        assert(state.indices_in_use & state.ready_index == 0);
+        assert(state.in_use_index_bits & state.ready_index_bits == 0);
         assert(std.math.isPowerOfTwo(acquire_index_bit));
         if (self.state.cmpxchgStrong(
             state,
             .{
                 .is_rendering = true,
-                .indices_in_use = state.indices_in_use | state.ready_index,
-                .ready_index = 0,
+                .in_use_index_bits = state.in_use_index_bits | state.ready_index_bits,
+                .ready_index_bits = 0,
             },
             .acquire,
             .monotonic,
@@ -144,13 +144,13 @@ fn end(self: *Renderer, command_buffer: *CommandBuffer) void {
         assertStateValid(state);
         const cmd_buffer_index_bit = getCommandBufferIndexBit(self, command_buffer);
         assert(state.is_rendering);
-        assert(state.indices_in_use & cmd_buffer_index_bit != 0);
+        assert(state.in_use_index_bits & cmd_buffer_index_bit != 0);
         if (self.state.cmpxchgStrong(
             state,
             .{
                 .is_rendering = false,
-                .indices_in_use = state.indices_in_use & ~cmd_buffer_index_bit,
-                .ready_index = state.ready_index,
+                .in_use_index_bits = state.in_use_index_bits & ~cmd_buffer_index_bit,
+                .ready_index_bits = state.ready_index_bits,
             },
             .release,
             .monotonic,
@@ -170,13 +170,13 @@ pub fn acquireCommandBuffer(self: *Renderer) ?*CommandBuffer {
 
         const avalible_index_bit: u2 = nextFreeIndexBit(state) orelse return null;
         assert(!state.is_rendering);
-        assert(state.indices_in_use != 0b11); //we never want to acquire a new command buffer if 2 are already in use
+        assert(state.in_use_index_bits != 0b11); //we never want to acquire a new command buffer if 2 are already in use
         if (self.state.cmpxchgStrong(
             state,
             .{
                 .is_rendering = state.is_rendering,
-                .indices_in_use = state.indices_in_use | avalible_index_bit,
-                .ready_index = state.ready_index,
+                .in_use_index_bits = state.in_use_index_bits | avalible_index_bit,
+                .ready_index_bits = state.ready_index_bits,
             },
             .acquire,
             .monotonic,
@@ -199,14 +199,14 @@ pub fn releaseCommandBufferAndMakeReady(self: *Renderer, command_buffer: *const 
 
     while (true) {
         assertStateValid(state);
-        assert(state.indices_in_use & cmd_buffer_index_bit != 0);
-        assert(state.ready_index & cmd_buffer_index_bit == 0);
+        assert(state.in_use_index_bits & cmd_buffer_index_bit != 0);
+        assert(state.ready_index_bits & cmd_buffer_index_bit == 0);
         if (self.state.cmpxchgStrong(
             state,
             .{
                 .is_rendering = state.is_rendering,
-                .indices_in_use = state.indices_in_use & ~cmd_buffer_index_bit,
-                .ready_index = cmd_buffer_index_bit,
+                .in_use_index_bits = state.in_use_index_bits & ~cmd_buffer_index_bit,
+                .ready_index_bits = cmd_buffer_index_bit,
             },
             .release,
             .monotonic,
@@ -219,7 +219,7 @@ pub fn releaseCommandBufferAndMakeReady(self: *Renderer, command_buffer: *const 
 }
 
 fn assertStateValid(state: State) void {
-    assert(@popCount(state.ready_index) <= 1);
+    assert(@popCount(state.ready_index_bits) <= 1);
     assert(state._reserved == 0);
 }
 
@@ -232,10 +232,10 @@ fn getCommandBufferIndexBit(self: *Renderer, command_buffer: *const CommandBuffe
 }
 
 fn nextFreeIndexBit(state: State) ?u2 {
-    assert(state.ready_index == 0 or std.math.isPowerOfTwo(state.ready_index));
+    assert(state.ready_index_bits == 0 or std.math.isPowerOfTwo(state.ready_index_bits));
     const mask: u2 = 0b11;
 
-    const candidates: u2 = (~state.indices_in_use) & (~state.ready_index) & mask;
+    const candidates: u2 = (~state.in_use_index_bits) & (~state.ready_index_bits) & mask;
 
     if (candidates == 0) return null;
 

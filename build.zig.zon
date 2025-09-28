@@ -1,10 +1,9 @@
 .{
-    .name = .foo,
+    .name = .Engine,
 
     .version = "0.0.0",
 
-    .fingerprint = 0x8c736521a81f7bf8, // Changing this has security and trust implications.
-
+    .fingerprint = 0xef041fbb44932a50,
     .minimum_zig_version = "0.14.0",
 
     .dependencies = .{
@@ -13,14 +12,11 @@
 
             .hash = "zig_objc-0.0.0-Ir_SpwsPAQBJgi9YRm2ubJMfdoysSq5gKpsIj3izQ8Zk",
         },
-        .cocoa = .{
-            .path = "Cocoa",
-        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
-        "info.plist",
+        "MacOS/",
     },
 }

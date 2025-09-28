@@ -8,7 +8,7 @@ const GameState = struct {
     rects: [2]Rect,
 };
 
-pub export fn initGameMemory(game_memory: *const engine.GameMemory) callconv(.c) void {
+pub export fn initGameMemory(game_memory: *const engine.GameMemory) void {
     const game_state: *GameState = @alignCast(@ptrCast(game_memory.permanent_storage));
     game_state.* = .{
         .rects = .{
@@ -39,7 +39,7 @@ pub export fn updateAndRender(
         render_command_buffer.appendCommand(.{
             .draw_rect = .{
                 .rect = rect,
-                .color = .{ 0.6, 0.0, 0.7, 1.0 },
+                .color = .{ 0.0, 0.0, 0.7, 1.0 },
             },
         }) catch @panic("Failed to record draw command");
 

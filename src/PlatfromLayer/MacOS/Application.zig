@@ -4,13 +4,11 @@ const engine = @import("Engine");
 
 const MetalContext = @import("MetalContext.zig");
 const CocoaContext = @import("CocoaContext.zig");
-// const HIDContext = @import("HIDContext.zig");
+const HIDContext = @import("HIDContext.zig");
 const DeviceInfo = @import("DeviceInfo.zig");
 const Time = @import("Time.zig");
 
-// const GameCode = @import("GameCode.zig");
 const GameCode = common.GameCode;
-
 const GameMemory = engine.GameMemory;
 const Renderer = common.Renderer;
 
@@ -29,8 +27,8 @@ mtl_context: MetalContext,
 cocoa_context: CocoaContext,
 time: Time,
 
-game_code_loader: ?GameCode.Loader,
-game_code: GameCode,
+// input_pool: common.InputPool = .{},
+
 game_memory: GameMemory,
 
 pending_resize: bool = false,
@@ -39,10 +37,11 @@ running: AtomicBool = AtomicBool.init(false),
 
 pub fn init(self: *Application, allocator: std.mem.Allocator, window_width: u32, window_height: u32) !void {
     self.* = try initSystems(allocator, window_width, window_height);
+    self.initInternalPointers();
 }
 
 pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_height: u32) !Application {
-    const args = common.Args.get();
+    // const args = common.Args.get();
 
     const device_info = DeviceInfo.init();
 
@@ -68,28 +67,10 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
 
     const time = Time.init();
 
-    var game_code_loader = if (args.game_lib) |game_lib|
-        try GameCode.Loader.init(
-            game_lib,
-        )
-    else
-        null;
-
-    errdefer {
-        if (game_code_loader) |*loader| {
-            loader.deinit();
-        }
-    }
-
-    const game_code = if (game_code_loader) |*loader|
-        loader.load()
-    else
-        GameCode.stub;
-
     const game_memory = try engine.GameMemory.init(allocator);
     errdefer game_memory.deinit(allocator);
 
-    game_code.initGameMemory(&game_memory);
+    GameCode.initGameMemory(&game_memory);
 
     log.info("Application initialized", .{});
 
@@ -100,8 +81,6 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
         .device_info = device_info,
         .time = time,
         .renderer = renderer,
-        .game_code = game_code,
-        .game_code_loader = game_code_loader,
         .game_memory = game_memory,
     };
 }
@@ -110,10 +89,6 @@ pub fn initInternalPointers(_: *Application) void {}
 
 pub fn deinit(self: *Application) void {
     self.cocoa_context.deinit();
-    self.game_code = .stub;
-    if (self.game_code_loader) |*loader| {
-        loader.deinit();
-    }
     self.renderer.deinit(self.allocator);
     self.mtl_context.deinit();
     self.game_memory.deinit(self.allocator);
@@ -134,25 +109,32 @@ pub fn run(self: *Application) !void {
         @as(f64, 1.0 / 30.0),
     });
 
-    self.cocoaLoop(game_thread, render_thread);
+    self.cocoaLoop(
+        game_thread,
+        render_thread,
+    );
 }
 
-fn gameLoop(self: *Application, delta_time_s: f64) void {
+fn gameLoop(self: *Application, time_step_s: f64) void {
     var timer = Time.RepeatingTimer.initAndStart(
         &self.time,
-        delta_time_s,
+        time_step_s,
     );
 
     while (self.running.load(.monotonic)) {
-        const render_command_buffer = self.renderer.acquireCommandBuffer() orelse unreachable;
-        self.game_code.updateAndRender(
+        // const input = self.input_pool.acquireReadyInput() orelse &engine.Input{};
+        const render_command_buffer = self.renderer.acquireCommandBuffer() orelse continue;
+        GameCode.updateAndRender(
             render_command_buffer,
             &self.game_memory,
-            delta_time_s,
+            // input,
+            time_step_s,
         );
+        // self.input_pool.releaseInput(input);
         self.renderer.submitCommandBuffer(render_command_buffer);
         timer.wait();
     }
+
     log.info("game loop exited", .{});
     self.renderer.wake_up.post();
 }
@@ -167,8 +149,9 @@ fn cocoaLoop(
     const framebuffer_pool = &self.renderer.framebuffer_pool;
 
     while (self.running.load(.monotonic)) {
+        // const input = self.input_pool.acquireNextFreeInput();
         self.cocoa_context.processEvents();
-
+        // self.input_pool.releaseInput(input);
         if (framebuffer_pool.acquireReadyBuffer()) |framebuffer| {
             mtl_context.blitAndPresentFramebuffer(&framebuffer);
             framebuffer_pool.releaseBuffer(framebuffer);
@@ -179,6 +162,7 @@ fn cocoaLoop(
     game_thread.join();
     render_thread.join();
 }
+pub var a_key_pressed = false;
 
 fn updateState(self: *Application) void {
     if (self.cocoa_context.delegate.checkAndClearResized()) {

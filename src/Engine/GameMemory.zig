@@ -2,7 +2,6 @@ const std = @import("std");
 
 pub const GameMemory = extern struct {
     pub const permanent_storage_size: u64 = 64 * 1024 * 1024; // 64 MiB
-
     permanent_storage: *anyopaque,
     pub fn init(allocator: std.mem.Allocator) !GameMemory {
         const permanent_storage = try allocator.alignedAlloc(

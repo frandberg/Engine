@@ -20,11 +20,11 @@ pub const buffer_count = 3;
 
 const max_buffer_count: usize = 8;
 
-pub const State = packed struct(u64) {
-    indices_in_use: u3 = 0,
-    ready_index: u3 = 0,
+pub const State = packed struct(u8) {
+    in_use_index_bits: u3 = 0,
+    ready_index_bit: u3 = 0,
     pending_resize: bool = false,
-    _reserved: u57 = 0,
+    _reserved: u1 = 0,
 };
 
 pub const Info = struct {
@@ -78,8 +78,8 @@ pub fn resize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
     while (self.state.cmpxchgStrong(
         state,
         .{
-            .indices_in_use = state.indices_in_use,
-            .ready_index = state.ready_index,
+            .in_use_index_bits = state.in_use_index_bits,
+            .ready_index_bit = state.ready_index_bit,
             .pending_resize = true,
         },
         .acq_rel,
@@ -88,7 +88,7 @@ pub fn resize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
         state = new_state;
     }
 
-    while (self.state.load(.seq_cst).indices_in_use != 0) {
+    while (self.state.load(.seq_cst).in_use_index_bits != 0) {
         std.time.sleep(1000);
     }
     if (new_width * new_height < self.width * self.height) {
@@ -100,8 +100,8 @@ pub fn resize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
     self.width = new_width;
     self.height = new_height;
     self.state.store(.{
-        .indices_in_use = 0,
-        .ready_index = 0,
+        .in_use_index_bits = 0,
+        .ready_index_bit = 0,
         .pending_resize = false,
     }, .seq_cst);
     log.debug("FramebufferPool resized to {}x{}\n", .{ new_width, new_height });
@@ -146,17 +146,17 @@ pub fn acquireNextFreeBuffer(self: *FramebufferPool) ?Framebuffer {
 
     while (true) {
         assertStateValid(state);
-        if (state.pending_resize or (state.indices_in_use == all_indices_ocupied)) {
+        if (state.pending_resize or (state.in_use_index_bits == all_indices_ocupied)) {
             return null;
         }
         const index_bit: u3 = nextFreeIndexBit(state) orelse return null;
-        assert(index_bit & state.ready_index == 0);
+        assert(index_bit & state.ready_index_bit == 0);
 
         if (self.state.cmpxchgStrong(
             state,
             .{
-                .indices_in_use = state.indices_in_use | index_bit,
-                .ready_index = state.ready_index,
+                .in_use_index_bits = state.in_use_index_bits | index_bit,
+                .ready_index_bit = state.ready_index_bit,
                 .pending_resize = false,
             },
             .acquire,
@@ -177,13 +177,13 @@ pub fn releaseBufferAndMakeReady(self: *FramebufferPool, framebuffer: Framebuffe
 
     while (true) {
         assertStateValid(state);
-        assert(state.indices_in_use & index_bit != 0);
-        assert(state.ready_index & index_bit == 0);
+        assert(state.in_use_index_bits & index_bit != 0);
+        assert(state.ready_index_bit & index_bit == 0);
         if (self.state.cmpxchgStrong(
             state,
             .{
-                .indices_in_use = state.indices_in_use & ~index_bit,
-                .ready_index = index_bit,
+                .in_use_index_bits = state.in_use_index_bits & ~index_bit,
+                .ready_index_bit = index_bit,
                 .pending_resize = state.pending_resize,
             },
             .release,
@@ -201,17 +201,17 @@ pub fn acquireReadyBuffer(self: *FramebufferPool) ?Framebuffer {
 
     while (true) {
         assertStateValid(state);
-        if (state.ready_index == 0 or state.pending_resize) {
+        if (state.ready_index_bit == 0 or state.pending_resize) {
             return null;
         }
-        assert(state.ready_index & state.indices_in_use == 0);
+        assert(state.ready_index_bit & state.in_use_index_bits == 0);
 
-        const acquire_index = state.ready_index;
+        const acquire_index = state.ready_index_bit;
         if (self.state.cmpxchgStrong(
             state,
             .{
-                .indices_in_use = state.indices_in_use | state.ready_index,
-                .ready_index = 0,
+                .in_use_index_bits = state.in_use_index_bits | state.ready_index_bit,
+                .ready_index_bit = 0,
                 .pending_resize = false,
             },
             .acquire,
@@ -232,13 +232,13 @@ pub fn releaseBuffer(self: *FramebufferPool, framebuffer: Framebuffer) void {
 
     while (true) {
         assertStateValid(state);
-        assert(state.indices_in_use & index_bit != 0);
-        assert(state.ready_index & index_bit == 0);
+        assert(state.in_use_index_bits & index_bit != 0);
+        assert(state.ready_index_bit & index_bit == 0);
         if (self.state.cmpxchgStrong(
             state,
             .{
-                .indices_in_use = state.indices_in_use & ~index_bit,
-                .ready_index = state.ready_index,
+                .in_use_index_bits = state.in_use_index_bits & ~index_bit,
+                .ready_index_bit = state.ready_index_bit,
                 .pending_resize = state.pending_resize,
             },
             .release,
@@ -252,16 +252,16 @@ pub fn releaseBuffer(self: *FramebufferPool, framebuffer: Framebuffer) void {
 }
 
 fn assertStateValid(state: State) void {
-    assert(@popCount(state.ready_index) <= 1);
+    assert(@popCount(state.ready_index_bit) <= 1);
     assert(state._reserved == 0);
 }
 
 fn nextFreeIndexBit(state: State) ?u3 {
-    assert(state.ready_index == 0 or std.math.isPowerOfTwo(state.ready_index));
+    assert(state.ready_index_bit == 0 or std.math.isPowerOfTwo(state.ready_index_bit));
     assert(buffer_count != 0);
     const mask: u3 = @as(u3, 1) << buffer_count - 1;
 
-    const candidates: u3 = (~state.indices_in_use) & (~state.ready_index) & mask;
+    const candidates: u3 = (~state.in_use_index_bits) & (~state.ready_index_bit) & mask;
 
     if (candidates == 0) return null;
 

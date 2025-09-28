@@ -6,7 +6,7 @@ fn eql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
-hot_reload: bool = false,
+src_dir: ?[]const u8 = null,
 game_lib: ?[]const u8 = null,
 
 pub fn get() Args {
@@ -14,11 +14,19 @@ pub fn get() Args {
     var arg_iter = std.process.args();
 
     while (arg_iter.next()) |arg| {
-        if (eql("-g", arg) or eql("--game", arg) or eql("--game-lib", arg)) {
+        if (eql("-g", arg) or eql("--game-lib", arg)) {
             const game_lib = arg_iter.next();
             if (game_lib) |lib| {
                 if (lib.len > 0) {
                     args.game_lib = game_lib;
+                }
+            }
+        }
+        if (eql("-s", arg) or eql("--src-dir", arg)) {
+            const src_dir = arg_iter.next();
+            if (src_dir) |dir| {
+                if (dir.len > 0) {
+                    args.src_dir = src_dir;
                 }
             }
         }

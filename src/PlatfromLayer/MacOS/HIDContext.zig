@@ -19,11 +19,11 @@ pub const Input = struct {
 };
 
 pub fn init(allocator: std.mem.Allocator) !HIDContext {
-    const hid_manager = c.IOHIDManagerCreate(
+    const hid_manager: *HIDManager = c.IOHIDManagerCreate(
         c.kCFAllocatorDefault,
         c.kIOHIDOptionsTypeNone,
     ) orelse return error.HIDManagerWasNull;
-    const devices = getAllDevices(allocator) orelse return error.FailedToGetDevices;
+    const devices = try getAllDevices(allocator, hid_manager);
 
     return .{
         .hid_manager = hid_manager,
@@ -39,7 +39,7 @@ pub fn deinit(_: *HIDContext) void {
     // Cleanup code if necessary
 }
 
-pub fn getAllDevices(hid_manager: *HIDManager, allocator: std.mem.Allocator) []c.IOHIDDeviceRef {
+pub fn getAllDevices(allocator: std.mem.Allocator, hid_manager: *HIDManager) ![]c.IOHIDDeviceRef {
     c.IOHIDManagerSetDeviceMatching(hid_manager, null);
     const result = c.IOHIDManagerOpen(hid_manager, c.kIOHIDOptionsTypeSeizeDevice);
     if (result != 0) {
@@ -47,9 +47,10 @@ pub fn getAllDevices(hid_manager: *HIDManager, allocator: std.mem.Allocator) []c
     }
 
     const devices_set = c.IOHIDManagerCopyDevices(hid_manager) orelse return error.FailedToCopyDevices;
-    const device_count = c.CFSetGetCount(devices_set);
+    const device_count: usize = @intCast(c.CFSetGetCount(devices_set));
     const devices = try allocator.alloc(c.IOHIDDeviceRef, device_count);
-    c.CFSetGetValues(devices_set, devices.ptr);
+    c.CFSetGetValues(devices_set, @ptrCast(devices.ptr));
+    return devices;
 }
 fn onInput(
     _: ?*anyopaque,
