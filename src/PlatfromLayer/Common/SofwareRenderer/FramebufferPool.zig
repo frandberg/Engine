@@ -1,6 +1,6 @@
 const std = @import("std");
 const objc = @import("objc");
-const BufferPool = @import("../BufferPool.zig").BufferPool;
+const BufferPoolState = @import("../BufferPoolState.zig").BufferPoolState;
 
 const Object = objc.Object;
 const nil: objc.c.id = @ptrFromInt(0);
@@ -17,7 +17,7 @@ height: u32,
 // state: Atomic(State) align(8) = Atomic(State).init(.{}),
 //
 mem_index: usize = 0,
-buffer_pool: BufferPool(3) = .{},
+state: BufferPoolState(3) = .{},
 new_size: std.atomic.Value(Size) = std.atomic.Value(Size).init(.{
     .width = std.math.maxInt(u32),
     .height = std.math.maxInt(u32),
@@ -27,13 +27,6 @@ pub const bytes_per_pixel: u32 = @sizeOf(u32);
 pub const buffer_count = 3;
 
 const max_buffer_count: usize = 8;
-
-pub const State = packed struct(u8) {
-    in_use_index_bits: u3 = 0,
-    ready_index_bit: u3 = 0,
-    pending_resize: bool = false,
-    _reserved: u1 = 0,
-};
 
 const Size = packed struct(u64) {
     width: u32,
@@ -131,33 +124,32 @@ fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
     };
 }
 
-pub fn acquireFree(self: *FramebufferPool) ?Framebuffer {
+pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
     if (self.needsResize()) {
-        if (self.buffer_pool.state.load(.monotonic).in_use_index_bits == 0) {
+        if (self.state.avalibleBufferCount() == 0) {
             self.applyResize();
         } else {
             return null;
         }
     }
-    return if (self.buffer_pool.acquireFree()) |index| self.getBuffer(index) else null;
+    return if (self.state.acquireAvalible()) |index| self.getBuffer(index) else null;
 }
 
 pub fn releaseReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
     const discard = self.needsResize();
-    self.buffer_pool.releaseReady(self.getBufferIndex(framebuffer), discard);
+    self.state.releaseReady(self.getBufferIndex(framebuffer), discard);
 }
 
 pub fn acquireReady(self: *FramebufferPool) ?Framebuffer {
     if (self.needsResize()) {
         return null;
     }
-    return if (self.buffer_pool.acquireReady()) |index| self.getBuffer(index) else null;
+    return if (self.state.acquireReady()) |index| self.getBuffer(index) else null;
 }
 
 pub fn release(self: *FramebufferPool, framebuffer: Framebuffer) void {
-    self.buffer_pool.release(self.getBufferIndex(framebuffer));
+    self.state.release(self.getBufferIndex(framebuffer));
 }
-
 pub fn needsResize(self: *FramebufferPool) bool {
     if (self.new_size.load(.monotonic) != null_size) {
         return true;
@@ -171,18 +163,6 @@ fn applyResize(self: *FramebufferPool) void {
     self.width = new_size.width;
     self.height = new_size.height;
     self.new_size.store(null_size, .monotonic);
-}
-
-fn nextFreeIndexBit(state: State) ?u3 {
-    assert(state.ready_index_bit == 0 or std.math.isPowerOfTwo(state.ready_index_bit));
-    assert(buffer_count != 0);
-    const mask: u3 = @as(u3, 1) << buffer_count - 1;
-
-    const candidates: u3 = (~state.in_use_index_bits) & (~state.ready_index_bit) & mask;
-
-    if (candidates == 0) return null;
-
-    return candidates & ~candidates + 1; //lowest candidate
 }
 
 fn getBufferIndex(self: *const FramebufferPool, framebuffer: Framebuffer) u2 {

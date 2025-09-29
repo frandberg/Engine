@@ -6,7 +6,7 @@ const GameCode = @This();
 
 pub extern fn initGameMemory(game_memory: *engine.GameMemory) void;
 
-pub extern fn updateAndRender(render_command_buffer: *engine.RenderCommandBuffer, game_memory: *const engine.GameMemory, time_step_s: f64) void;
+pub extern fn updateAndRender(render_command_buffer: *engine.RenderCommandBuffer, game_memory: *const engine.GameMemory, input: *const engine.Input, time_step_s: f64) void;
 
 // init_game_memory_fn: *const fn (game_memory: *const engine.GameMemory) callconv(.c) void,
 // update_and_render_fn: *const fn (render_command_buffer: *engine.RenderCommandBuffer, game_memory: *const engine.GameMemory, time_step_s: f64) callconv(.c) void,

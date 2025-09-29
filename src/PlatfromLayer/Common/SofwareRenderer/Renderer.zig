@@ -2,6 +2,7 @@ const std = @import("std");
 const engine = @import("Engine");
 
 const FramebufferPool = @import("FramebufferPool.zig");
+const BufferPoolState = @import("../BufferPoolState.zig").BufferPoolState;
 const Framebuffer = FramebufferPool.Framebuffer;
 const CommandBuffer = engine.RenderCommandBuffer;
 const Command = CommandBuffer.Command;
@@ -20,48 +21,84 @@ const Atomic = std.atomic.Value;
 //
 const max_frames_in_flight: usize = 2;
 
-pub const State = packed struct(u8) {
-    is_rendering: bool = false,
-    in_use_index_bits: u2 = 0,
-    ready_index_bits: u2 = 0,
-    _reserved: u3 = 0,
-};
-
 framebuffer_pool: FramebufferPool align(8),
-command_buffers: [2]CommandBuffer,
-cmd_buffer_backing_mem: []Command,
+cmd_buffer_pool: CommandBufferPool,
+is_rendering: Atomic(bool) = Atomic(bool).init(false),
 
 wake_up: std.Thread.Semaphore = .{},
 
-state: Atomic(State) align(8) = Atomic(State).init(.{}),
+const CommandBufferPool = struct {
+    backing_mem: []Command,
+    buffers: [max_frames_in_flight]CommandBuffer,
+    state: BufferPoolState(max_frames_in_flight) = .{},
 
-const max_commands = 1024;
+    const max_commands = 1024;
+
+    fn init(allocator: std.mem.Allocator) !CommandBufferPool {
+        const backing_mem = try allocator.alloc(Command, max_commands * max_frames_in_flight);
+        var buffers: [max_frames_in_flight]CommandBuffer = undefined;
+        for (0..max_frames_in_flight) |i| {
+            buffers[i] = .{
+                .buffer = backing_mem[i * max_frames_in_flight .. (i + 1) * max_frames_in_flight],
+                .count = 0,
+            };
+        }
+        return .{
+            .backing_mem = backing_mem,
+            .buffers = buffers,
+        };
+    }
+    fn deinit(self: *CommandBufferPool, allocator: std.mem.Allocator) void {
+        allocator.free(self.backing_mem);
+    }
+
+    fn acquireAvalible(self: *CommandBufferPool) ?CommandBuffer {
+        return if (self.state.acquireAvalible()) |index| self.getBuffer(index) else null;
+    }
+    fn releaseReady(self: *CommandBufferPool, cmd_buffer: CommandBuffer) void {
+        self.state.releaseReady(self.getBufferIndex(cmd_buffer), false);
+    }
+
+    fn acquireReady(self: *CommandBufferPool) ?CommandBuffer {
+        return if (self.state.acquireReady()) |index| self.getBuffer(index) else null;
+    }
+
+    fn release(self: *CommandBufferPool, cmd_buffer: CommandBuffer) void {
+        self.buffers[self.getBufferIndex(cmd_buffer)].count = 0;
+        self.state.release(self.getBufferIndex(cmd_buffer));
+    }
+    fn getBuffer(self: *const CommandBufferPool, index: usize) CommandBuffer {
+        assert(index < max_frames_in_flight);
+        return self.buffers[index];
+    }
+
+    fn getBufferIndex(self: *const CommandBufferPool, cmd_buffer: CommandBuffer) usize {
+        const index = (@intFromPtr(cmd_buffer.buffer.ptr) - @intFromPtr(self.backing_mem.ptr)) / (@sizeOf(Command) * max_frames_in_flight);
+        if (index != 0) {
+            assert(index == 1);
+        }
+        assert(index < max_frames_in_flight);
+        return index;
+    }
+};
+
 pub fn init(allocator: std.mem.Allocator, fbp_info: FramebufferPool.Info) !Renderer {
     const framebuffer_pool = try FramebufferPool.init(
         allocator,
         fbp_info,
     );
     errdefer framebuffer_pool.deinit(allocator);
-    const cmd_buffer_backing_mem = try allocator.alloc(
-        CommandBuffer.Command,
-        max_commands * max_frames_in_flight,
-    );
-    errdefer allocator.free(cmd_buffer_backing_mem);
-
-    const command_buffers = [_]CommandBuffer{
-        CommandBuffer.init(cmd_buffer_backing_mem[0..max_commands]),
-        CommandBuffer.init(cmd_buffer_backing_mem[max_commands..]),
-    };
+    const cmd_buffer_pool = try CommandBufferPool.init(allocator);
+    errdefer cmd_buffer_pool.deinit();
 
     return .{
         .framebuffer_pool = framebuffer_pool,
-        .command_buffers = command_buffers,
-        .cmd_buffer_backing_mem = cmd_buffer_backing_mem,
+        .cmd_buffer_pool = cmd_buffer_pool,
     };
 }
 
-pub fn deinit(self: *const Renderer, allocator: std.mem.Allocator) void {
-    allocator.free(self.cmd_buffer_backing_mem);
+pub fn deinit(self: *Renderer, allocator: std.mem.Allocator) void {
+    self.cmd_buffer_pool.deinit(allocator);
     self.framebuffer_pool.deinit(allocator);
 }
 
@@ -71,173 +108,54 @@ pub fn renderLoop(self: *Renderer, is_running: *Atomic(bool)) void {
         if (is_running.load(.monotonic) == false) {
             break;
         }
-        const framebuffer = self.framebuffer_pool.acquireFree() orelse continue;
+
+        const framebuffer = self.framebuffer_pool.acquireAvalible() orelse continue;
         defer self.framebuffer_pool.releaseReady(framebuffer);
         framebuffer.clear(0);
 
         const command_buffer = self.begin() orelse continue;
         defer self.end(command_buffer);
 
-        for (command_buffer.bufferSlice()) |command| {
+        for (command_buffer.buffer) |command| {
             executeCommand(command, framebuffer);
         }
     }
     log.info("Render loop exited", .{});
 }
 
-pub fn submitCommandBuffer(self: *Renderer, command_buffer: *const CommandBuffer) void {
-    if (self.state.load(.acquire).is_rendering) {
+pub fn acquireCommandBuffer(self: *Renderer) ?CommandBuffer {
+    return self.cmd_buffer_pool.acquireAvalible();
+}
+
+pub fn submitCommandBuffer(self: *Renderer, command_buffer: CommandBuffer) void {
+    if (self.is_rendering.load(.monotonic)) {
         std.log.warn("render called while already rendering, ignoring.", .{});
         return;
     }
-    self.releaseCommandBufferAndMakeReady(command_buffer);
+    self.cmd_buffer_pool.releaseReady(command_buffer);
     self.wake_up.post();
 }
 
-pub fn resizeFramebuffers(self: *Renderer) void {
-    self.framebuffer_pool.resize();
-}
-
-pub fn acquireReadyFramebuffer(self: *const Renderer) ?Framebuffer {
-    return self.framebuffer_pool.acquireReady();
-}
-
-pub fn releaseFramebuffer(self: *const Renderer, framebuffer: Framebuffer) void {
-    self.framebuffer_pool.releaseBuffer(framebuffer);
-}
-
-fn begin(self: *Renderer) ?*CommandBuffer {
-    var state = self.state.load(.acquire);
-
-    while (true) {
-        assertStateValid(state);
-        if (state.ready_index_bits == 0) {
-            return null;
-        }
-        const acquire_index_bit = state.ready_index_bits;
-        assert(!state.is_rendering);
-        assert(state.in_use_index_bits & state.ready_index_bits == 0);
-        assert(std.math.isPowerOfTwo(acquire_index_bit));
-        if (self.state.cmpxchgStrong(
-            state,
-            .{
-                .is_rendering = true,
-                .in_use_index_bits = state.in_use_index_bits | state.ready_index_bits,
-                .ready_index_bits = 0,
-            },
-            .acquire,
-            .monotonic,
-        )) |new_state| {
-            state = new_state;
-        } else {
-            const index = @ctz(acquire_index_bit);
-            return &self.command_buffers[index];
-        }
+fn begin(self: *Renderer) ?CommandBuffer {
+    if (self.is_rendering.cmpxchgStrong(
+        false,
+        true,
+        .monotonic,
+        .monotonic,
+    )) |_| {
+        return null;
     }
+    return self.cmd_buffer_pool.acquireReady();
 }
 
-fn end(self: *Renderer, command_buffer: *CommandBuffer) void {
-    command_buffer.reset();
-    var state = self.state.load(.acquire);
-
-    while (true) {
-        assertStateValid(state);
-        const cmd_buffer_index_bit = getCommandBufferIndexBit(self, command_buffer);
-        assert(state.is_rendering);
-        assert(state.in_use_index_bits & cmd_buffer_index_bit != 0);
-        if (self.state.cmpxchgStrong(
-            state,
-            .{
-                .is_rendering = false,
-                .in_use_index_bits = state.in_use_index_bits & ~cmd_buffer_index_bit,
-                .ready_index_bits = state.ready_index_bits,
-            },
-            .release,
-            .monotonic,
-        )) |new_state| {
-            state = new_state;
-        } else {
-            return;
-        }
+fn end(self: *Renderer, command_buffer: CommandBuffer) void {
+    self.cmd_buffer_pool.release(command_buffer);
+    if (self.is_rendering.cmpxchgStrong(
+        true,
+        false,
+        .monotonic,
+        .monotonic,
+    )) |_| {
+        @panic("rendering is false when ending render");
     }
-}
-
-pub fn acquireCommandBuffer(self: *Renderer) ?*CommandBuffer {
-    var state = self.state.load(.acquire);
-
-    while (true) {
-        assertStateValid(state);
-
-        const avalible_index_bit: u2 = nextFreeIndexBit(state) orelse return null;
-        assert(!state.is_rendering);
-        assert(state.in_use_index_bits != 0b11); //we never want to acquire a new command buffer if 2 are already in use
-        if (self.state.cmpxchgStrong(
-            state,
-            .{
-                .is_rendering = state.is_rendering,
-                .in_use_index_bits = state.in_use_index_bits | avalible_index_bit,
-                .ready_index_bits = state.ready_index_bits,
-            },
-            .acquire,
-            .monotonic,
-        )) |new_state| {
-            state = new_state;
-        } else {
-            switch (avalible_index_bit) {
-                0b01 => return &self.command_buffers[0],
-                0b10 => return &self.command_buffers[1],
-                else => unreachable,
-            }
-        }
-    }
-}
-
-pub fn releaseCommandBufferAndMakeReady(self: *Renderer, command_buffer: *const CommandBuffer) void {
-    var state = self.state.load(.acquire);
-
-    const cmd_buffer_index_bit = getCommandBufferIndexBit(self, command_buffer);
-
-    while (true) {
-        assertStateValid(state);
-        assert(state.in_use_index_bits & cmd_buffer_index_bit != 0);
-        assert(state.ready_index_bits & cmd_buffer_index_bit == 0);
-        if (self.state.cmpxchgStrong(
-            state,
-            .{
-                .is_rendering = state.is_rendering,
-                .in_use_index_bits = state.in_use_index_bits & ~cmd_buffer_index_bit,
-                .ready_index_bits = cmd_buffer_index_bit,
-            },
-            .release,
-            .monotonic,
-        )) |new_state| {
-            state = new_state;
-        } else {
-            return;
-        }
-    }
-}
-
-fn assertStateValid(state: State) void {
-    assert(@popCount(state.ready_index_bits) <= 1);
-    assert(state._reserved == 0);
-}
-
-fn getCommandBufferIndexBit(self: *Renderer, command_buffer: *const CommandBuffer) u2 {
-    if (command_buffer == &self.command_buffers[0]) {
-        return 0b01;
-    } else if (command_buffer == &self.command_buffers[1]) {
-        return 0b10;
-    } else unreachable;
-}
-
-fn nextFreeIndexBit(state: State) ?u2 {
-    assert(state.ready_index_bits == 0 or std.math.isPowerOfTwo(state.ready_index_bits));
-    const mask: u2 = 0b11;
-
-    const candidates: u2 = (~state.in_use_index_bits) & (~state.ready_index_bits) & mask;
-
-    if (candidates == 0) return null;
-
-    return candidates & ~candidates + 1; //lowest candidate
 }

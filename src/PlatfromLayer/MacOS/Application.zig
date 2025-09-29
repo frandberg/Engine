@@ -12,6 +12,8 @@ const GameCode = common.GameCode;
 const GameMemory = engine.GameMemory;
 const Renderer = common.Renderer;
 
+const InputPool = common.InputPool;
+
 const log = std.log.scoped(.platfrom_layer);
 
 const Application = @This();
@@ -27,7 +29,7 @@ mtl_context: MetalContext,
 cocoa_context: CocoaContext,
 time: Time,
 
-// input_pool: common.InputPool = .{},
+input_pool: common.InputPool = .{},
 
 game_memory: GameMemory,
 
@@ -45,7 +47,7 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
 
     const device_info = DeviceInfo.init();
 
-    const renderer = try Renderer.init(
+    var renderer = try Renderer.init(
         allocator,
         .{
             .max_width = device_info.display_width,
@@ -79,6 +81,7 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
         .cocoa_context = cocoa_context,
         .device_info = device_info,
         .time = time,
+        .input_pool = .{},
         .renderer = renderer,
         .game_memory = game_memory,
     };
@@ -121,15 +124,17 @@ fn gameLoop(self: *Application, time_step_s: f64) void {
     );
 
     while (self.running.load(.monotonic)) {
-        // const input = self.input_pool.acquireReadyInput() orelse &engine.Input{};
-        const render_command_buffer = self.renderer.acquireCommandBuffer() orelse continue;
+        const input = self.input_pool.acquireReady();
+        var render_command_buffer = self.renderer.acquireCommandBuffer() orelse continue;
         GameCode.updateAndRender(
-            render_command_buffer,
+            &render_command_buffer,
             &self.game_memory,
-            // input,
+            input orelse &.{},
             time_step_s,
         );
-        // self.input_pool.releaseInput(input);
+        if (input) |_input| {
+            self.input_pool.release(_input);
+        }
         self.renderer.submitCommandBuffer(render_command_buffer);
         timer.wait();
     }
@@ -148,9 +153,12 @@ fn cocoaLoop(
     const framebuffer_pool = &self.renderer.framebuffer_pool;
 
     while (self.running.load(.monotonic)) {
-        // const input = self.input_pool.acquireNextFreeInput();
-        self.cocoa_context.processEvents();
-        // self.input_pool.releaseInput(input);
+        const input = self.input_pool.acquireAvalible();
+        self.cocoa_context.processEvents(input);
+        if (input) |_input| {
+            self.input_pool.releaseReady(_input);
+        }
+
         if (framebuffer_pool.acquireReady()) |framebuffer| {
             mtl_context.blitAndPresentFramebuffer(&framebuffer);
             framebuffer_pool.release(framebuffer);

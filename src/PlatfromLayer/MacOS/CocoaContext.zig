@@ -187,12 +187,16 @@ pub const Delegate = struct {
     }
 };
 
-pub fn processEvents(self: *CocoaContext) void {
+pub fn processEvents(self: *CocoaContext, input: ?*Input) void {
     while (nextEvent(self.app, 0.001)) |event_id| {
         self.app.msgSend(void, "sendEvent:", .{event_id});
         self.app.msgSend(void, "updateWindows", .{});
-        if (Object.fromId(event_id).msgSend(usize, "type", .{}) == 10) {
-            // toggleKey(input, Object.fromId(event_id).msgSend(u16, "keyCode", .{}), true);
+        if (input) |_input| {
+            if (Object.fromId(event_id).msgSend(usize, "type", .{}) == 10) {
+                toggleKey(_input, Object.fromId(event_id).msgSend(u16, "keyCode", .{}), true);
+            } else if (Object.fromId(event_id).msgSend(usize, "type", .{}) == 11) {
+                toggleKey(_input, Object.fromId(event_id).msgSend(u16, "keyCode", .{}), false);
+            }
         }
     }
 }

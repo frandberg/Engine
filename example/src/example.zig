@@ -31,12 +31,19 @@ pub export fn initGameMemory(game_memory: *const engine.GameMemory) void {
 pub export fn updateAndRender(
     render_command_buffer: *engine.RenderCommandBuffer,
     game_memory: *const engine.GameMemory,
+    input: *const engine.Input,
+    _: f64,
 ) void {
+    inline for (comptime std.meta.fieldNames(engine.Input.Keys)) |field_name| {
+        if (@field(input.keys_down, field_name) == true) {
+            std.debug.print("key {s} pressed\n", .{field_name});
+        }
+    }
     const game_state: *GameState = @ptrCast(@alignCast(game_memory.permanent_storage));
     // const red: f32 = @as(f32, @floatFromInt(game_state.frame % 255)) / 255.0;
     //
     for (&game_state.rects) |rect|
-        render_command_buffer.appendCommand(.{
+        render_command_buffer.push(.{
             .draw_rect = .{
                 .rect = rect,
                 .color = .{ 0.0, 0.0, 0.7, 1.0 },
