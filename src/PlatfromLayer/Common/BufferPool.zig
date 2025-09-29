@@ -26,7 +26,7 @@ pub fn BufferPool(comptime buffer_count: comptime_int) type {
 
         state: std.atomic.Value(State) = std.atomic.Value(State).init(.{}),
 
-        pub fn acquireForWrite(self: *Self) ?usize {
+        pub fn acquireFree(self: *Self) ?usize {
             var state = self.state.load(.monotonic);
 
             const all_indices_ocupied: IntT = std.math.maxInt(IntT);
@@ -54,7 +54,7 @@ pub fn BufferPool(comptime buffer_count: comptime_int) type {
             }
         }
 
-        pub fn finishWrite(self: *Self, index: usize) void {
+        pub fn releaseReady(self: *Self, index: usize, discard: bool) void {
             var state = self.state.load(.monotonic);
             const index_bit = getIndexBit(index);
 
@@ -66,7 +66,7 @@ pub fn BufferPool(comptime buffer_count: comptime_int) type {
                     state,
                     .{
                         .in_use_index_bits = state.in_use_index_bits & ~index_bit,
-                        .ready_index_bit = index_bit,
+                        .ready_index_bit = if (discard) 0 else index_bit,
                     },
                     .release,
                     .monotonic,
@@ -78,7 +78,7 @@ pub fn BufferPool(comptime buffer_count: comptime_int) type {
             }
         }
 
-        pub fn acquireForRead(self: *Self) ?usize {
+        pub fn acquireReady(self: *Self) ?usize {
             var state = self.state.load(.monotonic);
 
             while (true) {
@@ -101,7 +101,7 @@ pub fn BufferPool(comptime buffer_count: comptime_int) type {
                 }
             }
         }
-        pub fn finishRead(self: *Self, index: usize) void {
+        pub fn release(self: *Self, index: usize) void {
             var state = self.state.load(.monotonic);
 
             const index_bit = getIndexBit(index);
@@ -138,8 +138,8 @@ pub fn BufferPool(comptime buffer_count: comptime_int) type {
         }
         fn assertStateValid(state: State) void {
             assert(@popCount(state.ready_index_bit) <= 1);
-            assert(state._unused == 0);
             assert(state.ready_index_bit & state.in_use_index_bits == 0);
+            assert(state._unused == 0);
         }
         fn getIndexBit(index: usize) IntT {
             assert(index < buffer_count);

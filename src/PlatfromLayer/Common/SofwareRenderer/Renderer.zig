@@ -71,8 +71,8 @@ pub fn renderLoop(self: *Renderer, is_running: *Atomic(bool)) void {
         if (is_running.load(.monotonic) == false) {
             break;
         }
-        const framebuffer = self.framebuffer_pool.acquireNextFreeBuffer() orelse continue;
-        defer self.framebuffer_pool.releaseBufferAndMakeReady(framebuffer);
+        const framebuffer = self.framebuffer_pool.acquireFree() orelse continue;
+        defer self.framebuffer_pool.releaseReady(framebuffer);
         framebuffer.clear(0);
 
         const command_buffer = self.begin() orelse continue;
@@ -99,7 +99,7 @@ pub fn resizeFramebuffers(self: *Renderer) void {
 }
 
 pub fn acquireReadyFramebuffer(self: *const Renderer) ?Framebuffer {
-    return self.framebuffer_pool.acquireReadyBuffer();
+    return self.framebuffer_pool.acquireReady();
 }
 
 pub fn releaseFramebuffer(self: *const Renderer, framebuffer: Framebuffer) void {

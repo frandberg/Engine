@@ -31,7 +31,7 @@ time: Time,
 
 game_memory: GameMemory,
 
-pending_resize: bool = false,
+wait_resize: std.Thread.Semaphore = .{},
 pending_reload: bool = false,
 running: AtomicBool = AtomicBool.init(false),
 
@@ -151,9 +151,9 @@ fn cocoaLoop(
         // const input = self.input_pool.acquireNextFreeInput();
         self.cocoa_context.processEvents();
         // self.input_pool.releaseInput(input);
-        if (framebuffer_pool.acquireReadyBuffer()) |framebuffer| {
+        if (framebuffer_pool.acquireReady()) |framebuffer| {
             mtl_context.blitAndPresentFramebuffer(&framebuffer);
-            framebuffer_pool.releaseBuffer(framebuffer);
+            framebuffer_pool.release(framebuffer);
         }
         self.updateState();
     }
@@ -167,7 +167,7 @@ fn updateState(self: *Application) void {
     if (self.cocoa_context.delegate.checkAndClearResized()) {
         const size = self.cocoa_context.windowViewSize();
         self.mtl_context.resizeLayer(size.width, size.height);
-        // self.renderer.framebuffer_pool.resize(size.width, size.height);
+        self.renderer.framebuffer_pool.resize(size.width, size.height);
     }
     if (self.cocoa_context.delegate.closed()) {
         self.running.store(false, .seq_cst);

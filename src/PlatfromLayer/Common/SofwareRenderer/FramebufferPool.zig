@@ -15,7 +15,13 @@ backing_memory: []u32,
 width: u32,
 height: u32,
 // state: Atomic(State) align(8) = Atomic(State).init(.{}),
-buffer_pool: BufferPool(3),
+//
+mem_index: usize = 0,
+buffer_pool: BufferPool(3) = .{},
+new_size: std.atomic.Value(Size) = std.atomic.Value(Size).init(.{
+    .width = std.math.maxInt(u32),
+    .height = std.math.maxInt(u32),
+}),
 
 pub const bytes_per_pixel: u32 = @sizeOf(u32);
 pub const buffer_count = 3;
@@ -27,6 +33,16 @@ pub const State = packed struct(u8) {
     ready_index_bit: u3 = 0,
     pending_resize: bool = false,
     _reserved: u1 = 0,
+};
+
+const Size = packed struct(u64) {
+    width: u32,
+    height: u32,
+};
+
+const null_size: Size = .{
+    .width = std.math.maxInt(u32),
+    .height = std.math.maxInt(u32),
 };
 
 pub const Info = struct {
@@ -58,14 +74,17 @@ pub const Framebuffer = struct {
 pub fn init(allocaor: std.mem.Allocator, info: Info) !FramebufferPool {
     const allocation_size = info.max_width * info.max_height * buffer_count;
 
-    const backing_memory = try allocaor.alignedAlloc(u32, std.mem.Alignment.fromByteUnits(std.heap.pageSize()), allocation_size);
+    const backing_memory = try allocaor.alignedAlloc(
+        u32,
+        std.mem.Alignment.fromByteUnits(std.heap.pageSize()),
+        allocation_size,
+    );
     @memset(backing_memory, 0);
 
     return .{
         .backing_memory = backing_memory,
         .width = info.width,
         .height = info.height,
-        .buffer_pool = .{},
     };
 }
 
@@ -74,38 +93,10 @@ pub fn deinit(self: *const FramebufferPool, allocator: std.mem.Allocator) void {
 }
 
 pub fn resize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
-    assert(new_width > 0 and new_height > 0);
-    assert(new_width * new_height <= self.maxPixelsPerBuffer());
-
-    var state = self.state.load(.seq_cst);
-    while (self.state.cmpxchgStrong(
-        state,
-        .{
-            .in_use_index_bits = state.in_use_index_bits,
-            .ready_index_bit = state.ready_index_bit,
-            .pending_resize = true,
-        },
-        .acq_rel,
-        .monotonic,
-    )) |new_state| {
-        state = new_state;
-    }
-
-    while (self.state.load(.seq_cst).in_use_index_bits != 0) {}
-    if (new_width * new_height < self.width * self.height) {
-        inline for (0..buffer_count) |i| {
-            const buffer = self.getBuffer(i);
-            @memset(buffer.memory[new_width * new_height .. self.width * self.height], 0);
-        }
-    }
-    self.width = new_width;
-    self.height = new_height;
-    self.state.store(.{
-        .in_use_index_bits = 0,
-        .ready_index_bit = 0,
-        .pending_resize = false,
-    }, .seq_cst);
-    log.debug("FramebufferPool resized to {}x{}\n", .{ new_width, new_height });
+    const new_size: Size = .{ .width = new_width, .height = new_height };
+    assert(new_size != null_size);
+    self.new_size.store(new_size, .monotonic);
+    log.debug("resized", .{});
 }
 
 pub fn maxPixelsPerBuffer(self: *const FramebufferPool) usize {
@@ -140,135 +131,46 @@ fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
     };
 }
 
-pub fn acquireNextFreeBuffer(self: *FramebufferPool) ?Framebuffer {
-    const ret = if (self.buffer_pool.acquireForWrite()) |index| self.getBuffer(index) else null;
-    return ret;
+pub fn acquireFree(self: *FramebufferPool) ?Framebuffer {
+    if (self.needsResize()) {
+        if (self.buffer_pool.state.load(.monotonic).in_use_index_bits == 0) {
+            self.applyResize();
+        } else {
+            return null;
+        }
+    }
+    return if (self.buffer_pool.acquireFree()) |index| self.getBuffer(index) else null;
 }
-// pub fn acquireNextFreeBuffer(self: *FramebufferPool) ?Framebuffer {
-//     var state = self.state.load(.monotonic);
-//
-//     const all_indices_ocupied: u3 = 0b111;
-//
-//     while (true) {
-//         assertStateValid(state);
-//         if (state.pending_resize or (state.in_use_index_bits == all_indices_ocupied)) {
-//             return null;
-//         }
-//         const index_bit: u3 = nextFreeIndexBit(state) orelse return null;
-//         assert(index_bit & state.ready_index_bit == 0);
-//
-//         if (self.state.cmpxchgStrong(
-//             state,
-//             .{
-//                 .in_use_index_bits = state.in_use_index_bits | index_bit,
-//                 .ready_index_bit = state.ready_index_bit,
-//                 .pending_resize = false,
-//             },
-//             .acquire,
-//             .monotonic,
-//         )) |new_state| {
-//             state = new_state;
-//         } else {
-//             return self.getBuffer(@ctz(index_bit));
-//         }
-//     }
-// }
 
-pub fn releaseBufferAndMakeReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
-    self.buffer_pool.finishWrite(self.getBufferIndex(framebuffer));
+pub fn releaseReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
+    const discard = self.needsResize();
+    self.buffer_pool.releaseReady(self.getBufferIndex(framebuffer), discard);
 }
-// pub fn releaseBufferAndMakeReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
-//     var state = self.state.load(.monotonic);
-//
-//     const index = getBufferIndex(self, framebuffer);
-//     const index_bit: u3 = @as(u3, 1) << index;
-//
-//     while (true) {
-//         assertStateValid(state);
-//         assert(state.in_use_index_bits & index_bit != 0);
-//         assert(state.ready_index_bit & index_bit == 0);
-//         if (self.state.cmpxchgStrong(
-//             state,
-//             .{
-//                 .in_use_index_bits = state.in_use_index_bits & ~index_bit,
-//                 .ready_index_bit = index_bit,
-//                 .pending_resize = state.pending_resize,
-//             },
-//             .release,
-//             .monotonic,
-//         )) |new_state| {
-//             state = new_state;
-//         } else {
-//             return;
-//         }
-//     }
-// }
 
-pub fn acquireReadyBuffer(self: *FramebufferPool) ?Framebuffer {
-    const ret = if (self.buffer_pool.acquireForRead()) |index| self.getBuffer(index) else null;
-    return ret;
+pub fn acquireReady(self: *FramebufferPool) ?Framebuffer {
+    if (self.needsResize()) {
+        return null;
+    }
+    return if (self.buffer_pool.acquireReady()) |index| self.getBuffer(index) else null;
 }
-// pub fn acquireReadyBuffer(self: *FramebufferPool) ?Framebuffer {
-//     var state = self.state.load(.monotonic);
-//
-//     while (true) {
-//         assertStateValid(state);
-//         if (state.ready_index_bit == 0 or state.pending_resize) {
-//             return null;
-//         }
-//         assert(state.ready_index_bit & state.in_use_index_bits == 0);
-//
-//         const acquire_index = state.ready_index_bit;
-//         if (self.state.cmpxchgStrong(
-//             state,
-//             .{
-//                 .in_use_index_bits = state.in_use_index_bits | state.ready_index_bit,
-//                 .ready_index_bit = 0,
-//                 .pending_resize = false,
-//             },
-//             .acquire,
-//             .monotonic,
-//         )) |new_state| {
-//             state = new_state;
-//         } else {
-//             return self.getBuffer(@ctz(acquire_index));
-//         }
-//     }
-// }
 
-pub fn releaseBuffer(self: *FramebufferPool, framebuffer: Framebuffer) void {
-    self.buffer_pool.finishRead(self.getBufferIndex(framebuffer));
+pub fn release(self: *FramebufferPool, framebuffer: Framebuffer) void {
+    self.buffer_pool.release(self.getBufferIndex(framebuffer));
 }
-// pub fn releaseBuffer(self: *FramebufferPool, framebuffer: Framebuffer) void {
-//     var state = self.state.load(.monotonic);
-//
-//     const index = getBufferIndex(self, framebuffer);
-//     const index_bit: u3 = @as(u3, 1) << index;
-//
-//     while (true) {
-//         assertStateValid(state);
-//         assert(state.in_use_index_bits & index_bit != 0);
-//         assert(state.ready_index_bit & index_bit == 0);
-//         if (self.state.cmpxchgStrong(
-//             state,
-//             .{
-//                 .in_use_index_bits = state.in_use_index_bits & ~index_bit,
-//                 .ready_index_bit = state.ready_index_bit,
-//                 .pending_resize = state.pending_resize,
-//             },
-//             .release,
-//             .monotonic,
-//         )) |new_state| {
-//             state = new_state;
-//         } else {
-//             return;
-//         }
-//     }
-// }
 
-fn assertStateValid(state: State) void {
-    assert(@popCount(state.ready_index_bit) <= 1);
-    assert(state._reserved == 0);
+pub fn needsResize(self: *FramebufferPool) bool {
+    if (self.new_size.load(.monotonic) != null_size) {
+        return true;
+    }
+    return false;
+}
+
+fn applyResize(self: *FramebufferPool) void {
+    const new_size = self.new_size.load(.monotonic);
+    assert(new_size != null_size);
+    self.width = new_size.width;
+    self.height = new_size.height;
+    self.new_size.store(null_size, .monotonic);
 }
 
 fn nextFreeIndexBit(state: State) ?u3 {
