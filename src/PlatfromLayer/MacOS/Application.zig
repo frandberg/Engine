@@ -67,8 +67,9 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
 
     const time = Time.init();
 
-    const game_memory = try engine.GameMemory.init(allocator);
+    var game_memory = try engine.GameMemory.init(allocator);
     errdefer game_memory.deinit(allocator);
+    GameCode.initGameMemory(&game_memory);
 
     log.info("Application initialized", .{});
 
@@ -166,7 +167,7 @@ fn updateState(self: *Application) void {
     if (self.cocoa_context.delegate.checkAndClearResized()) {
         const size = self.cocoa_context.windowViewSize();
         self.mtl_context.resizeLayer(size.width, size.height);
-        self.renderer.framebuffer_pool.resize(size.width, size.height);
+        // self.renderer.framebuffer_pool.resize(size.width, size.height);
     }
     if (self.cocoa_context.delegate.closed()) {
         self.running.store(false, .seq_cst);

@@ -73,7 +73,7 @@ pub fn build(b: *std.Build) !void {
         },
         .linkage = .dynamic,
     });
-    exe.linkLibrary(lib_stub);
+    // exe.linkLibrary(lib_stub);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

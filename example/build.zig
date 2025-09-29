@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) !void {
     engine_exe.linkLibrary(example_lib);
     b.installArtifact(engine_exe);
 
+    std.debug.print("building example", .{});
     const run_cmd = b.addRunArtifact(engine_exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
