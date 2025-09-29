@@ -6,7 +6,7 @@ pub const GameMemory = extern struct {
     pub fn init(allocator: std.mem.Allocator) !GameMemory {
         const permanent_storage = try allocator.alignedAlloc(
             u8,
-            std.heap.pageSize(),
+            std.mem.Alignment.fromByteUnits(std.heap.pageSize()),
             permanent_storage_size,
         );
         return .{

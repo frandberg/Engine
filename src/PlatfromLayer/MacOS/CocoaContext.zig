@@ -117,9 +117,9 @@ pub const Delegate = struct {
     pub fn init() Delegate {
         const class = objc.allocateClassPair(objc.getClass("NSObject"), "Delegate").?;
 
-        _ = try class.addMethod("windowShouldClose:", windowShouldClose);
+        _ = class.addMethod("windowShouldClose:", windowShouldClose);
 
-        _ = try class.addMethod("windowDidResize:", windowDidResize);
+        _ = class.addMethod("windowDidResize:", windowDidResize);
 
         const flag_encoding = comptime objc.comptimeEncode(u64);
         _ = objc.c.class_addIvar(

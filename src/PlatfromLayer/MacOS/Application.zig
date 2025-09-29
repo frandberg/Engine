@@ -70,8 +70,6 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
     const game_memory = try engine.GameMemory.init(allocator);
     errdefer game_memory.deinit(allocator);
 
-    GameCode.initGameMemory(&game_memory);
-
     log.info("Application initialized", .{});
 
     return .{

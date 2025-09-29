@@ -56,7 +56,7 @@ pub const Framebuffer = struct {
 pub fn init(allocaor: std.mem.Allocator, info: Info) !FramebufferPool {
     const allocation_size = info.max_width * info.max_height * buffer_count;
 
-    const backing_memory = try allocaor.alignedAlloc(u32, std.heap.pageSize(), allocation_size);
+    const backing_memory = try allocaor.alignedAlloc(u32, std.mem.Alignment.fromByteUnits(std.heap.pageSize()), allocation_size);
     @memset(backing_memory, 0);
 
     return .{
@@ -88,9 +88,7 @@ pub fn resize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
         state = new_state;
     }
 
-    while (self.state.load(.seq_cst).in_use_index_bits != 0) {
-        std.time.sleep(1000);
-    }
+    while (self.state.load(.seq_cst).in_use_index_bits != 0) {}
     if (new_width * new_height < self.width * self.height) {
         inline for (0..buffer_count) |i| {
             const buffer = self.getBuffer(i);

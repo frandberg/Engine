@@ -9,7 +9,7 @@ const GameState = struct {
 };
 
 pub export fn initGameMemory(game_memory: *const engine.GameMemory) void {
-    const game_state: *GameState = @alignCast(@ptrCast(game_memory.permanent_storage));
+    const game_state: *GameState = @ptrCast(@alignCast(game_memory.permanent_storage));
     game_state.* = .{
         .rects = .{
             .{
@@ -32,7 +32,7 @@ pub export fn updateAndRender(
     render_command_buffer: *engine.RenderCommandBuffer,
     game_memory: *const engine.GameMemory,
 ) void {
-    const game_state: *GameState = @alignCast(@ptrCast(game_memory.permanent_storage));
+    const game_state: *GameState = @ptrCast(@alignCast(game_memory.permanent_storage));
     // const red: f32 = @as(f32, @floatFromInt(game_state.frame % 255)) / 255.0;
     //
     for (&game_state.rects) |rect|
