@@ -13,9 +13,11 @@ const assert = std.debug.assert;
 //   - A buffer is either free, in use or ready (no overlap).
 //   - State updates happen atomically via cmpxchg on the packed struct.
 //
-pub fn BufferPoolState(comptime buffer_count: comptime_int) type {
+pub fn BufferPoolState(comptime count: comptime_int) type {
     return struct {
         const Self = @This();
+
+        pub const buffer_count = count;
         const IntT = if (buffer_count == 2) u2 else if (buffer_count == 3) u3 else @compileError("unsuported buffer count");
 
         const State = packed struct(u8) {

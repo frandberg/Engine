@@ -1,5 +1,23 @@
 const std = @import("std");
-keys_down: Keys = .{},
+const Input = @This();
+
+keys_state: Keys = .{},
+pub const Packed = packed struct(u128) {
+    key_state: Keys = .{},
+    _padding: u28 = 0,
+};
+
+pub fn fromPacked(packed_input: Packed) Input {
+    return .{
+        .keys_state = packed_input.key_state,
+    };
+}
+
+pub fn toPacked(input: Input) Packed {
+    return .{
+        .key_state = input.keys_state,
+    };
+}
 
 pub const KeyCodes: type = std.meta.FieldEnum(Keys);
 pub const Keys = packed struct(u100) {

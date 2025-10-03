@@ -1,6 +1,6 @@
 const std = @import("std");
 const objc = @import("objc");
-const BufferPoolState = @import("../BufferPoolState.zig").BufferPoolState;
+const BufferPoolState = @import("../BufferPoolState.zig").BufferPoolState(3);
 
 const Object = objc.Object;
 const nil: objc.c.id = @ptrFromInt(0);
@@ -17,7 +17,7 @@ height: u32,
 // state: Atomic(State) align(8) = Atomic(State).init(.{}),
 //
 mem_index: usize = 0,
-state: BufferPoolState(3) = .{},
+state: BufferPoolState = .{},
 new_size: std.atomic.Value(Size) = std.atomic.Value(Size).init(.{
     .width = std.math.maxInt(u32),
     .height = std.math.maxInt(u32),
@@ -89,7 +89,6 @@ pub fn resize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
     const new_size: Size = .{ .width = new_width, .height = new_height };
     assert(new_size != null_size);
     self.new_size.store(new_size, .monotonic);
-    log.debug("resized", .{});
 }
 
 pub fn maxPixelsPerBuffer(self: *const FramebufferPool) usize {
@@ -98,7 +97,6 @@ pub fn maxPixelsPerBuffer(self: *const FramebufferPool) usize {
 
 fn bufferByteOffset(self: *const FramebufferPool, index: usize) usize {
     const byte_offset = self.maxPixelsPerBuffer() * bytes_per_pixel * index;
-
     // sanity check: computed byte address must equal slice ptr
     const base_addr = @intFromPtr(self.backing_memory.ptr);
     const expect_ptr = base_addr + byte_offset;
@@ -126,7 +124,7 @@ fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
 
 pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
     if (self.needsResize()) {
-        if (self.state.avalibleBufferCount() == 0) {
+        if (self.state.avalibleBufferCount() == BufferPoolState.buffer_count) {
             self.applyResize();
         } else {
             return null;
@@ -137,6 +135,7 @@ pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
 
 pub fn releaseReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
     const discard = self.needsResize();
+    if (discard) {}
     self.state.releaseReady(self.getBufferIndex(framebuffer), discard);
 }
 
@@ -163,6 +162,7 @@ fn applyResize(self: *FramebufferPool) void {
     self.width = new_size.width;
     self.height = new_size.height;
     self.new_size.store(null_size, .monotonic);
+    log.info("resized framebuffers to {}x{}", .{ self.width, self.height });
 }
 
 fn getBufferIndex(self: *const FramebufferPool, framebuffer: Framebuffer) u2 {

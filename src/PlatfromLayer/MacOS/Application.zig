@@ -12,8 +12,6 @@ const GameCode = common.GameCode;
 const GameMemory = engine.GameMemory;
 const Renderer = common.Renderer;
 
-const InputPool = common.InputPool;
-
 const log = std.log.scoped(.platfrom_layer);
 
 const Application = @This();
@@ -29,9 +27,10 @@ mtl_context: MetalContext,
 cocoa_context: CocoaContext,
 time: Time,
 
-input_pool: common.InputPool = .{},
+input: std.atomic.Value(engine.Input.Packed) = std.atomic.Value(engine.Input.Packed).init(.{}),
 
 game_memory: GameMemory,
+game_code: GameCode,
 
 wait_resize: std.Thread.Semaphore = .{},
 pending_reload: bool = false,
@@ -69,9 +68,11 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
 
     const time = Time.init();
 
+    const game_code = try GameCode.init(null);
+
     var game_memory = try engine.GameMemory.init(allocator);
     errdefer game_memory.deinit(allocator);
-    GameCode.initGameMemory(&game_memory);
+    game_code.initGameMemory(&game_memory);
 
     log.info("Application initialized", .{});
 
@@ -81,8 +82,8 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
         .cocoa_context = cocoa_context,
         .device_info = device_info,
         .time = time,
-        .input_pool = .{},
         .renderer = renderer,
+        .game_code = game_code,
         .game_memory = game_memory,
     };
 }
@@ -124,17 +125,15 @@ fn gameLoop(self: *Application, time_step_s: f64) void {
     );
 
     while (self.running.load(.monotonic)) {
-        const input = self.input_pool.acquireReady();
         var render_command_buffer = self.renderer.acquireCommandBuffer() orelse continue;
-        GameCode.updateAndRender(
+        const input = engine.Input.fromPacked(self.input.load(.monotonic));
+
+        self.game_code.updateAndRender(
             &render_command_buffer,
             &self.game_memory,
-            input orelse &.{},
+            &input,
             time_step_s,
         );
-        if (input) |_input| {
-            self.input_pool.release(_input);
-        }
         self.renderer.submitCommandBuffer(render_command_buffer);
         timer.wait();
     }
@@ -153,12 +152,8 @@ fn cocoaLoop(
     const framebuffer_pool = &self.renderer.framebuffer_pool;
 
     while (self.running.load(.monotonic)) {
-        const input = self.input_pool.acquireAvalible();
-        self.cocoa_context.processEvents(input);
-        if (input) |_input| {
-            self.input_pool.releaseReady(_input);
-        }
-
+        const new_input = self.cocoa_context.processEvents(engine.Input.fromPacked(self.input.load(.monotonic)));
+        self.input.store(engine.Input.toPacked(new_input), .monotonic);
         if (framebuffer_pool.acquireReady()) |framebuffer| {
             mtl_context.blitAndPresentFramebuffer(&framebuffer);
             framebuffer_pool.release(framebuffer);

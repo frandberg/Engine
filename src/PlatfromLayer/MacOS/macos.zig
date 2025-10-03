@@ -6,7 +6,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     var app: Application = undefined;
-    try app.init(gpa.allocator(), 600, 400);
+    try app.init(gpa.allocator(), 1200, 900);
+
     defer app.deinit();
 
     try app.run();

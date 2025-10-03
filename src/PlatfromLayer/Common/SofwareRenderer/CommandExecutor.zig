@@ -23,10 +23,10 @@ pub fn drawRect(
     color: Vec4,
 ) void {
     const shifted_rect = rect.shift(-rect.width * 0.5, -rect.height * 0.5);
-    const clamped_rect = shifted_rect.clamp(-1.0, -1.0, 1.0, 1.0);
+    const cliped_rect = shifted_rect.clip(-1.0, -1.0, 1.0, 1.0);
 
     const pixel_space_rect = PixelSpaceRect.fromNormalizedRect(
-        clamped_rect,
+        cliped_rect,
         framebuffer.width,
         framebuffer.height,
     );

@@ -5,25 +5,27 @@ const Rect = engine.math.Rect;
 
 const GameState = struct {
     frame: u32 = 0,
-    rects: [2]Rect,
+    left_paddle: Rect,
+    right_paddle: Rect,
 };
 
 pub export fn initGameMemory(game_memory: *const engine.GameMemory) void {
     const game_state: *GameState = @ptrCast(@alignCast(game_memory.permanent_storage));
+    const paddle_width = 0.1;
+    const paddle_height = 0.4;
     game_state.* = .{
-        .rects = .{
-            .{
-                .x = 0.05 - 1.0,
-                .y = 0.0,
-                .width = 0.1,
-                .height = 0.5,
-            },
-            .{
-                .x = 1 - 0.05,
-                .y = 0.0,
-                .width = 0.1,
-                .height = 0.5,
-            },
+        .left_paddle = .{
+            .x = -1,
+            .y = 0,
+            .width = paddle_width,
+            .height = paddle_height,
+        },
+
+        .right_paddle = .{
+            .x = 1,
+            .y = 0,
+            .width = paddle_width,
+            .height = paddle_height,
         },
     };
 }
@@ -32,23 +34,30 @@ pub export fn updateAndRender(
     render_command_buffer: *engine.RenderCommandBuffer,
     game_memory: *const engine.GameMemory,
     input: *const engine.Input,
-    _: f64,
+    time_step: f64,
 ) void {
-    inline for (comptime std.meta.fieldNames(engine.Input.Keys)) |field_name| {
-        if (@field(input.keys_down, field_name) == true) {
-            std.debug.print("key {s} pressed\n", .{field_name});
-        }
-    }
     const game_state: *GameState = @ptrCast(@alignCast(game_memory.permanent_storage));
     // const red: f32 = @as(f32, @floatFromInt(game_state.frame % 255)) / 255.0;
     //
-    for (&game_state.rects) |rect|
-        render_command_buffer.push(.{
-            .draw_rect = .{
-                .rect = rect,
-                .color = .{ 0.0, 0.0, 0.7, 1.0 },
-            },
-        }) catch @panic("Failed to record draw command");
+    if (input.keys_state.up) {
+        game_state.left_paddle.y -= @as(f32, @floatCast(time_step));
+    }
+    if (input.keys_state.down) {
+        game_state.left_paddle.y += @as(f32, @floatCast(time_step));
+    }
+    render_command_buffer.push(.{
+        .draw_rect = .{
+            .rect = game_state.left_paddle,
+            .color = .{ 0.0, 0.0, 0.7, 1.0 },
+        },
+    }) catch @panic("Failed to record draw command");
+
+    render_command_buffer.push(.{
+        .draw_rect = .{
+            .rect = game_state.right_paddle,
+            .color = .{ 0.0, 0.0, 0.7, 1.0 },
+        },
+    }) catch @panic("Failed to record draw command");
 
     game_state.frame += 1;
 }

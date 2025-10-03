@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 
 const InputPool = @This();
 
-const pool_size = 3;
+const pool_size = 2;
 
 inputs: [pool_size]Input = [_]Input{.{}} ** pool_size,
 state: BufferPoolState(pool_size) = .{},

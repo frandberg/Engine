@@ -15,12 +15,17 @@ pub const Rect = struct {
         };
     }
 
-    pub fn clamp(rect: Rect, min_x: f32, min_y: f32, max_x: f32, max_y: f32) Rect {
+    pub fn clip(rect: Rect, min_x: f32, min_y: f32, max_x: f32, max_y: f32) Rect {
+        const new_x = @max(min_x, rect.x);
+        const new_y = @max(min_y, rect.y);
+        const new_w = @min(max_x, rect.x + rect.width) - new_x;
+        const new_h = @min(max_y, rect.y + rect.height) - new_y;
+
         return .{
-            .x = @max(min_x, @min(max_x, rect.x)),
-            .y = @max(min_y, @min(max_y, rect.y)),
-            .width = @max(0.0, @min(max_x - rect.x, rect.width)),
-            .height = @max(0.0, @min(max_y - rect.y, rect.height)),
+            .x = new_x,
+            .y = new_y,
+            .width = if (new_w > 0.0) new_w else 0.0,
+            .height = if (new_h > 0.0) new_h else 0.0,
         };
     }
 };

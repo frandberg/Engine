@@ -50,30 +50,13 @@ pub fn build(b: *std.Build) !void {
         mac_os_mod.linkFramework(framework_name, .{});
     }
 
-    const lib_stub_mod = b.createModule(.{
-        .root_source_file = b.path("src/stub/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    lib_stub_mod.addImport("engine", engine);
-
-    const lib_stub = b.addLibrary(.{
-        .name = "stub",
-        .root_module = lib_stub_mod,
-        .linkage = .static,
-    });
-    b.installArtifact(lib_stub);
-
     const exe = b.addExecutable(.{
         .name = "engine",
         .root_module = switch (target.result.os.tag) {
             .macos => mac_os_mod,
             else => @panic("Unsupported OS"),
         },
-        .linkage = .dynamic,
     });
-    // exe.linkLibrary(lib_stub);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
