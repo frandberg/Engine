@@ -7,10 +7,9 @@
     .minimum_zig_version = "0.14.0",
 
     .dependencies = .{
-        .objc = .{
-            // .url = "https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz",
-            // .hash = "zig_objc-0.0.0-Ir_SpwsPAQBJgi9YRm2ubJMfdoysSq5gKpsIj3izQ8Zk",
-            .path = "../zig-objc/",
+        .zig_objc = .{
+            .url = "git+https://github.com/mitchellh/zig-objc.git#f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae",
+            .hash = "zig_objc-0.0.0-Ir_Sp5gTAQCvxxR7oVIrPXxXwsfKgVP7_wqoOQrZjFeK",
         },
     },
     .paths = .{

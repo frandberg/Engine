@@ -6,7 +6,6 @@ fn eql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
-src_dir: ?[]const u8 = null,
 game_lib: ?[]const u8 = null,
 
 pub fn get() Args {
@@ -19,14 +18,6 @@ pub fn get() Args {
             if (game_lib) |lib| {
                 if (lib.len > 0) {
                     args.game_lib = game_lib;
-                }
-            }
-        }
-        if (eql("-s", arg) or eql("--src-dir", arg)) {
-            const src_dir = arg_iter.next();
-            if (src_dir) |dir| {
-                if (dir.len > 0) {
-                    args.src_dir = src_dir;
                 }
             }
         }

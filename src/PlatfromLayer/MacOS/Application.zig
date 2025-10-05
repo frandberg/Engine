@@ -5,7 +5,6 @@ const engine = @import("Engine");
 const MetalContext = @import("MetalContext.zig");
 const CocoaContext = @import("CocoaContext.zig");
 const HIDContext = @import("HIDContext.zig");
-const DeviceInfo = @import("DeviceInfo.zig");
 const Time = @import("Time.zig");
 
 const GameCode = common.GameCode;
@@ -20,7 +19,6 @@ const AtomicBool = std.atomic.Value(bool);
 
 allocator: std.mem.Allocator,
 
-device_info: DeviceInfo,
 renderer: Renderer,
 
 mtl_context: MetalContext,
@@ -42,15 +40,13 @@ pub fn init(self: *Application, allocator: std.mem.Allocator, window_width: u32,
 }
 
 pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_height: u32) !Application {
-    // const args = common.Args.get();
-
-    const device_info = DeviceInfo.init();
+    const args = common.Args.get();
 
     var renderer = try Renderer.init(
         allocator,
         .{
-            .max_width = device_info.display_width,
-            .max_height = device_info.display_height,
+            .max_width = window_width,
+            .max_height = window_width,
             .width = window_width,
             .height = window_height,
         },
@@ -68,7 +64,7 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
 
     const time = Time.init();
 
-    const game_code = try GameCode.init(null);
+    const game_code = try GameCode.init(args.game_lib);
 
     var game_memory = try engine.GameMemory.init(allocator);
     errdefer game_memory.deinit(allocator);
@@ -80,7 +76,6 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
         .allocator = allocator,
         .mtl_context = mtl_context,
         .cocoa_context = cocoa_context,
-        .device_info = device_info,
         .time = time,
         .renderer = renderer,
         .game_code = game_code,
@@ -164,13 +159,17 @@ fn cocoaLoop(
     game_thread.join();
     render_thread.join();
 }
-pub var a_key_pressed = false;
 
 fn updateState(self: *Application) void {
     if (self.cocoa_context.delegate.checkAndClearResized()) {
         const size = self.cocoa_context.windowViewSize();
-        self.mtl_context.resizeLayer(size.width, size.height);
-        self.renderer.framebuffer_pool.resize(size.width, size.height);
+        self.renderer.framebuffer_pool.requestResize(size.width, size.height);
+    }
+    if (self.renderer.framebuffer_pool.resize_state.load(.monotonic) == .applied) {
+        const width = self.renderer.framebuffer_pool.width;
+        const height = self.renderer.framebuffer_pool.height;
+        self.mtl_context.resize(self.renderer.framebuffer_pool.backing_memory, width, height);
+        self.renderer.framebuffer_pool.resize_state.store(.idle, .monotonic);
     }
     if (self.cocoa_context.delegate.closed()) {
         self.running.store(false, .seq_cst);

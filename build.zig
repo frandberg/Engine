@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) !void {
     platfrom_layer_common.addImport("Engine", engine);
     platfrom_layer_common.addImport("options", options_mod);
 
-    const objc_dep = b.dependency("objc", .{});
+    const objc_dep = b.dependency("zig_objc", .{});
     const mac_os_mod = b.createModule(.{
         .root_source_file = b.path("src/PlatfromLayer/MacOS/macos.zig"),
         .target = target,

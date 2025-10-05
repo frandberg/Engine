@@ -108,7 +108,6 @@ pub fn renderLoop(self: *Renderer, is_running: *Atomic(bool)) void {
         if (is_running.load(.monotonic) == false) {
             break;
         }
-
         const framebuffer = self.framebuffer_pool.acquireAvalible() orelse continue;
         defer self.framebuffer_pool.releaseReady(framebuffer);
         framebuffer.clear(0);
@@ -128,11 +127,12 @@ pub fn acquireCommandBuffer(self: *Renderer) ?CommandBuffer {
 }
 
 pub fn submitCommandBuffer(self: *Renderer, command_buffer: CommandBuffer) void {
+    self.cmd_buffer_pool.releaseReady(command_buffer);
     if (self.is_rendering.load(.monotonic)) {
         std.log.warn("render called while already rendering, ignoring.", .{});
+
         return;
     }
-    self.cmd_buffer_pool.releaseReady(command_buffer);
     self.wake_up.post();
 }
 
@@ -145,7 +145,12 @@ fn begin(self: *Renderer) ?CommandBuffer {
     )) |_| {
         return null;
     }
-    return self.cmd_buffer_pool.acquireReady();
+    if (self.cmd_buffer_pool.acquireReady()) |command_buffer| {
+        return command_buffer;
+    } else {
+        self.is_rendering.store(false, .monotonic);
+        return null;
+    }
 }
 
 fn end(self: *Renderer, command_buffer: CommandBuffer) void {

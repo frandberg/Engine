@@ -50,17 +50,7 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
     std.debug.assert(layer.value != nil);
     layer.msgSend(void, "setDevice:", .{device.value});
 
-    const frame_buffers = device.msgSend(
-        Object,
-        "newBufferWithBytesNoCopy:length:options:deallocator:",
-        .{
-            @as(*const anyopaque, backing_frame_buffer_mem.ptr),
-            @as(usize, backing_frame_buffer_mem.len * Framebuffer.bytes_per_pixel),
-            @as(usize, 0), // MTLResourceStorageModeShared
-            nil,
-        },
-    );
-    std.debug.assert(frame_buffers.value != nil);
+    const frame_buffers = createFrameBuffers(device, backing_frame_buffer_mem);
 
     return .{
         .device = device,
@@ -75,7 +65,27 @@ pub fn deinit(self: *const MetalContext) void {
     self.layer.msgSend(void, "release", .{});
 }
 
-pub fn resizeLayer(self: *const MetalContext, width: u32, height: u32) void {
+pub fn resize(self: *MetalContext, backing_frame_buffer_mem: []const u32, width: u32, height: u32) void {
+    self.frame_buffers.msgSend(void, "release", .{});
+    self.frame_buffers = createFrameBuffers(self.device, backing_frame_buffer_mem);
+    self.resizeLayer(width, height);
+}
+
+fn createFrameBuffers(device: Object, backing_memory: []const u32) objc.Object {
+    const frame_buffers = device.msgSend(
+        Object,
+        "newBufferWithBytesNoCopy:length:options:deallocator:",
+        .{
+            @as(*const anyopaque, backing_memory.ptr),
+            @as(usize, backing_memory.len * Framebuffer.bytes_per_pixel),
+            @as(usize, 0), // MTLResourceStorageModeShared
+            nil,
+        },
+    );
+    std.debug.assert(frame_buffers.value != nil);
+    return frame_buffers;
+}
+fn resizeLayer(self: *const MetalContext, width: u32, height: u32) void {
     self.layer.msgSend(void, "setDrawableSize:", .{
         CGSize{
             .width = @floatFromInt(width),

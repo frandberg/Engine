@@ -190,13 +190,14 @@ pub const Delegate = struct {
 pub fn processEvents(self: *CocoaContext, input: Input) Input {
     var new_input = input;
     while (nextEvent(self.app, 0.001)) |event_id| {
-        self.app.msgSend(void, "sendEvent:", .{event_id});
-        self.app.msgSend(void, "updateWindows", .{});
         if (Object.fromId(event_id).msgSend(usize, "type", .{}) == 10) {
             toggleKey(&new_input, Object.fromId(event_id).msgSend(u16, "keyCode", .{}), true);
         } else if (Object.fromId(event_id).msgSend(usize, "type", .{}) == 11) {
             toggleKey(&new_input, Object.fromId(event_id).msgSend(u16, "keyCode", .{}), false);
+        } else {
+            self.app.msgSend(void, "sendEvent:", .{event_id});
         }
+        self.app.msgSend(void, "updateWindows", .{});
     }
     return new_input;
 }

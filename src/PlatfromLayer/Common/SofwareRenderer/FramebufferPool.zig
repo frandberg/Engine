@@ -11,6 +11,7 @@ const Atomic = std.atomic.Value;
 const log = std.log.scoped(.FramebufferPool);
 const assert = std.debug.assert;
 
+allocator: std.mem.Allocator,
 backing_memory: []u32,
 width: u32,
 height: u32,
@@ -18,24 +19,26 @@ height: u32,
 //
 mem_index: usize = 0,
 state: BufferPoolState = .{},
-new_size: std.atomic.Value(Size) = std.atomic.Value(Size).init(.{
-    .width = std.math.maxInt(u32),
-    .height = std.math.maxInt(u32),
-}),
+new_size: ?Size = null,
+resize_state: Atomic(ResizeState) = Atomic(ResizeState).init(.idle),
+
+const page_alignment = std.mem.Alignment.fromByteUnits(std.heap.pageSize());
 
 pub const bytes_per_pixel: u32 = @sizeOf(u32);
 pub const buffer_count = 3;
 
 const max_buffer_count: usize = 8;
 
+pub const ResizeState = enum(u8) {
+    idle,
+    in_progress,
+    applied,
+    _,
+};
+
 const Size = packed struct(u64) {
     width: u32,
     height: u32,
-};
-
-const null_size: Size = .{
-    .width = std.math.maxInt(u32),
-    .height = std.math.maxInt(u32),
 };
 
 pub const Info = struct {
@@ -64,17 +67,18 @@ pub const Framebuffer = struct {
     }
 };
 
-pub fn init(allocaor: std.mem.Allocator, info: Info) !FramebufferPool {
-    const allocation_size = info.max_width * info.max_height * buffer_count;
+pub fn init(allocator: std.mem.Allocator, info: Info) !FramebufferPool {
+    const allocation_size = info.width * info.height * buffer_count;
 
-    const backing_memory = try allocaor.alignedAlloc(
+    const backing_memory = try allocator.alignedAlloc(
         u32,
-        std.mem.Alignment.fromByteUnits(std.heap.pageSize()),
+        page_alignment,
         allocation_size,
     );
     @memset(backing_memory, 0);
 
     return .{
+        .allocator = allocator,
         .backing_memory = backing_memory,
         .width = info.width,
         .height = info.height,
@@ -85,10 +89,14 @@ pub fn deinit(self: *const FramebufferPool, allocator: std.mem.Allocator) void {
     allocator.free(self.backing_memory);
 }
 
-pub fn resize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
+pub fn requestResize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
     const new_size: Size = .{ .width = new_width, .height = new_height };
     assert(new_size != null_size);
-    self.new_size.store(new_size, .monotonic);
+
+    self.resize_state.store(.in_progress, .monotonic);
+    std.debug.print("resize requested\n", .{});
+
+    self.new_size = new_size;
 }
 
 pub fn maxPixelsPerBuffer(self: *const FramebufferPool) usize {
@@ -123,7 +131,7 @@ fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
 }
 
 pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
-    if (self.needsResize()) {
+    if (self.isResizeing()) {
         if (self.state.avalibleBufferCount() == BufferPoolState.buffer_count) {
             self.applyResize();
         } else {
@@ -134,13 +142,15 @@ pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
 }
 
 pub fn releaseReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
-    const discard = self.needsResize();
+    const discard = self.isResizeing();
     if (discard) {}
     self.state.releaseReady(self.getBufferIndex(framebuffer), discard);
 }
 
 pub fn acquireReady(self: *FramebufferPool) ?Framebuffer {
-    if (self.needsResize()) {
+    // std.debug.print("acquireReady\n", .{});
+    if (self.isResizeing()) {
+        // std.debug.print("failed to acquire ready\n", .{});
         return null;
     }
     return if (self.state.acquireReady()) |index| self.getBuffer(index) else null;
@@ -149,19 +159,20 @@ pub fn acquireReady(self: *FramebufferPool) ?Framebuffer {
 pub fn release(self: *FramebufferPool, framebuffer: Framebuffer) void {
     self.state.release(self.getBufferIndex(framebuffer));
 }
-pub fn needsResize(self: *FramebufferPool) bool {
-    if (self.new_size.load(.monotonic) != null_size) {
-        return true;
-    }
-    return false;
+pub fn isResizeing(self: *FramebufferPool) bool {
+    return self.resize_state.load(.monotonic) == .in_progress;
 }
 
 fn applyResize(self: *FramebufferPool) void {
-    const new_size = self.new_size.load(.monotonic);
-    assert(new_size != null_size);
+    const new_size = self.new_size.?;
+    const allcation_size = new_size.width * new_size.height * buffer_count;
+    const new_mem = self.allocator.alignedAlloc(u32, page_alignment, allcation_size) catch return;
+    self.allocator.free(self.backing_memory);
+    self.backing_memory = new_mem;
     self.width = new_size.width;
     self.height = new_size.height;
-    self.new_size.store(null_size, .monotonic);
+    self.new_size = null;
+    self.resize_state.store(.applied, .release);
     log.info("resized framebuffers to {}x{}", .{ self.width, self.height });
 }
 
