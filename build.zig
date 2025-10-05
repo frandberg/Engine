@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) !void {
     const options_mod = options.createModule();
 
     const platfrom_layer_common = b.addModule("PlatformLayerCommon", .{
-        .root_source_file = b.path("src/PlatfromLayer/Common/Common.zig"),
+        .root_source_file = b.path("src/Platform/Common/Common.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) !void {
 
     const objc_dep = b.dependency("zig_objc", .{});
     const mac_os_mod = b.createModule(.{
-        .root_source_file = b.path("src/PlatfromLayer/MacOS/macos.zig"),
+        .root_source_file = b.path("src/Platform/MacOS/main.zig"),
         .target = target,
         .optimize = optimize,
     });

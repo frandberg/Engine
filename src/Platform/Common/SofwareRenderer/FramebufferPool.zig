@@ -91,10 +91,8 @@ pub fn deinit(self: *const FramebufferPool, allocator: std.mem.Allocator) void {
 
 pub fn requestResize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
     const new_size: Size = .{ .width = new_width, .height = new_height };
-    assert(new_size != null_size);
 
     self.resize_state.store(.in_progress, .monotonic);
-    std.debug.print("resize requested\n", .{});
 
     self.new_size = new_size;
 }
@@ -111,7 +109,7 @@ fn bufferByteOffset(self: *const FramebufferPool, index: usize) usize {
     const actual_ptr = @intFromPtr(self.framebuffers[index].memory.ptr);
 
     if (expect_ptr != actual_ptr) {
-        std.debug.print("Buffer offset mismatch: expect {}, actual {}\n", .{ expect_ptr, actual_ptr });
+        log.err("Buffer offset mismatch: expect {}, actual {}\n", .{ expect_ptr, actual_ptr });
         unreachable;
     }
     return byte_offset;
