@@ -50,14 +50,14 @@ pub export fn updateAndRender(
             .rect = game_state.left_paddle,
             .color = .{ 0.0, 0.0, 0.7, 1.0 },
         },
-    }) catch @panic("Failed to record draw command");
+    });
 
     render_command_buffer.push(.{
         .draw_rect = .{
             .rect = game_state.right_paddle,
             .color = .{ 0.0, 0.0, 0.7, 1.0 },
         },
-    }) catch @panic("Failed to record draw command");
+    });
 
     game_state.frame += 1;
 }
