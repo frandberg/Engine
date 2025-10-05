@@ -39,7 +39,7 @@ const CommandBufferPool = struct {
         var buffers: [max_frames_in_flight]CommandBuffer = undefined;
         for (0..max_frames_in_flight) |i| {
             buffers[i] = .{
-                .buffer = backing_mem[i * max_frames_in_flight .. (i + 1) * max_frames_in_flight],
+                .buffer = backing_mem[i * max_frames_in_flight * max_commands .. (i + 1) * max_frames_in_flight * max_commands],
                 .count = 0,
             };
         }

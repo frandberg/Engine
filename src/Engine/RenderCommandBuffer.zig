@@ -25,7 +25,7 @@ pub fn init(memory: []Command) CommandBuffer {
 }
 pub fn deinit(_: *CommandBuffer) void {}
 
-pub fn push(self: *CommandBuffer, command: Command) !void {
+pub fn push(self: *CommandBuffer, command: Command) void {
     self.buffer[self.count] = command;
     self.count += 1;
 }
