@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) !void {
     });
     b.installArtifact(example_lib);
 
-    const engine_exe = engine_dep.artifact("engine");
+    const engine_exe = engine_dep.artifact("Engine");
     engine_exe.linkLibrary(example_lib);
     b.installArtifact(engine_exe);
 

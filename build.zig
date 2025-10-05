@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     const exe = b.addExecutable(.{
-        .name = "engine",
+        .name = "Engine",
         .root_module = switch (target.result.os.tag) {
             .macos => mac_os_mod,
             else => @panic("Unsupported OS"),
