@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) !void {
     const example_lib = b.addLibrary(.{
         .name = "example",
         .root_module = example_mod,
-        .linkage = .static,
+        .linkage = .dynamic,
     });
     b.installArtifact(example_lib);
 
@@ -28,6 +28,8 @@ pub fn build(b: *std.Build) !void {
     const run_cmd = b.addRunArtifact(engine_exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
+    run_cmd.addArg("-g");
+    run_cmd.addArtifactArg(example_lib);
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
