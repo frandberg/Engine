@@ -22,7 +22,7 @@ pub fn drawRect(
     rect: Rect,
     color: Vec4,
 ) void {
-    const shifted_rect = rect.shift(-rect.width * 0.5, -rect.height * 0.5);
+    const shifted_rect = rect.shift(-rect.size[0] * 0.5, -rect.size[1] * 0.5);
     const cliped_rect = shifted_rect.clip(-1.0, -1.0, 1.0, 1.0);
 
     const pixel_space_rect = PixelSpaceRect.fromNormalizedRect(
@@ -58,10 +58,10 @@ const PixelSpaceRect = struct {
         max_height: u32,
     ) PixelSpaceRect {
         // log.debug("width: {}, height: {}, width / 2 {}, height / 2 = {}")
-        const x: u32 = @intFromFloat(@round(((rect.x + 1.0) / 2.0) * @as(f32, @floatFromInt(max_width))));
-        const y: u32 = @intFromFloat(@round(((rect.y + 1.0) / 2.0) * @as(f32, @floatFromInt(max_height))));
-        const width: u32 = @intFromFloat(@round((rect.width / 2.0) * @as(f32, @floatFromInt(max_width))));
-        const height: u32 = @intFromFloat(@round((rect.height / 2.0) * @as(f32, @floatFromInt(max_height))));
+        const x: u32 = @intFromFloat(@round(((rect.pos[0] + 1.0) / 2.0) * @as(f32, @floatFromInt(max_width))));
+        const y: u32 = @intFromFloat(@round(((rect.pos[1] + 1.0) / 2.0) * @as(f32, @floatFromInt(max_height))));
+        const width: u32 = @intFromFloat(@round((rect.size[0] / 2.0) * @as(f32, @floatFromInt(max_width))));
+        const height: u32 = @intFromFloat(@round((rect.size[1] / 2.0) * @as(f32, @floatFromInt(max_height))));
 
         return .{
             .x = x,
