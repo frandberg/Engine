@@ -19,8 +19,6 @@ const AtomicBool = std.atomic.Value(bool);
 
 allocator: std.mem.Allocator,
 
-renderer: Renderer,
-
 mtl_context: MetalContext,
 cocoa_context: CocoaContext,
 time: Time,
@@ -104,7 +102,7 @@ pub fn run(self: *Application) !void {
 
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
         self,
-        @as(f64, 1.0 / 30.0),
+        @as(f64, 1.0 / 120.0),
     });
 
     self.cocoaLoop(
