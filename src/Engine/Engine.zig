@@ -1,10 +1,11 @@
 pub const std = @import("std");
 
 pub const RenderCommandBuffer = @import("RenderCommandBuffer.zig");
-pub const math = @import("math.zig");
+pub const math = @import("math");
 pub const Input = @import("Input.zig");
 
 pub const GameMemory = @import("GameMemory.zig").GameMemory;
+pub const Physics = @import("Physics/Physics.zig");
 
 pub const IntiGameMemoryFn = fn (game_memory: *const GameMemory) callconv(.c) void;
 pub const UpdateAndRenderFn = fn (

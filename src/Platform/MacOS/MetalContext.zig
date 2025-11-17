@@ -122,9 +122,9 @@ pub fn blitAndPresentFramebuffer(
         framebuffer,
     );
 
-    cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
+    cmd_buffer.msgSend(void, "presentDrawable:afterMinimumDuration:", .{ drawable.value, @as(f64, 0) });
     cmd_buffer.msgSend(void, "commit", .{});
-    cmd_buffer.msgSend(void, "waitUntilCompleted", .{});
+    //cmd_buffer.msgSend(void, "waitUntilCompleted", .{});
 }
 
 fn blit(

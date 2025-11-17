@@ -4,7 +4,6 @@ const engine = @import("Engine");
 
 const MetalContext = @import("MetalContext.zig");
 const CocoaContext = @import("CocoaContext.zig");
-const HIDContext = @import("HIDContext.zig");
 const Time = @import("Time.zig");
 
 const GameCode = common.GameCode;
@@ -28,6 +27,7 @@ input: std.atomic.Value(engine.Input.Packed) = std.atomic.Value(engine.Input.Pac
 game_memory: GameMemory,
 game_code: GameCode,
 
+renderer: Renderer,
 wait_resize: std.Thread.Semaphore = .{},
 pending_reload: bool = false,
 running: AtomicBool = AtomicBool.init(false),
@@ -102,7 +102,7 @@ pub fn run(self: *Application) !void {
 
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
         self,
-        @as(f64, 1.0 / 120.0),
+        @as(f64, 1.0 / 85.0),
     });
 
     self.cocoaLoop(
@@ -120,7 +120,6 @@ fn gameLoop(self: *Application, time_step_s: f64) void {
     while (self.running.load(.monotonic)) {
         var render_command_buffer = self.renderer.acquireCommandBuffer() orelse continue;
         const input = engine.Input.fromPacked(self.input.load(.monotonic));
-
         self.game_code.updateAndRender(
             &render_command_buffer,
             &self.game_memory,
@@ -151,6 +150,7 @@ fn cocoaLoop(
             mtl_context.blitAndPresentFramebuffer(&framebuffer);
             framebuffer_pool.release(framebuffer);
         }
+
         self.updateState();
     }
     log.info("cocoa loop exited", .{});

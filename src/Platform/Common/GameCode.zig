@@ -13,6 +13,7 @@ update_and_render_fn: updateAndRenderT,
 
 pub fn init(lib_path: ?[]const u8) !GameCode {
     if (lib_path) |path| {
+        std.debug.print("Loading game code from: {s}\n", .{path});
         var handle = try std.DynLib.open(path);
         const init_game_memory_fn = handle.lookup(initGameMemoryT, "initGameMemory") orelse blk: {
             log.err("initGameMemory was not found", .{});

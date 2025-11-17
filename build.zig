@@ -25,6 +25,12 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const math = b.createModule(.{
+        .root_source_file = b.path("src/Engine/math/math.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const options_mod = options.createModule();
 
     const platfrom_layer_common = b.addModule("PlatformLayerCommon", .{
@@ -41,6 +47,8 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+
+    engine.addImport("math", math);
 
     mac_os_mod.addImport("Engine", engine);
     mac_os_mod.addImport("common", platfrom_layer_common);
@@ -65,7 +73,4 @@ pub fn build(b: *std.Build) !void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-
-    const run_step = b.step("run", "Run the example application");
-    run_step.dependOn(&run_cmd.step);
 }

@@ -23,9 +23,8 @@ const max_frames_in_flight: usize = 2;
 
 framebuffer_pool: FramebufferPool align(8),
 cmd_buffer_pool: CommandBufferPool,
-is_rendering: Atomic(bool) = Atomic(bool).init(false),
 
-wake_up: std.Thread.Semaphore = .{},
+wake_up: AutoResetEvent = .{},
 
 const CommandBufferPool = struct {
     backing_mem: []Command,
@@ -72,13 +71,14 @@ const CommandBufferPool = struct {
         return self.buffers[index];
     }
 
-    fn getBufferIndex(self: *const CommandBufferPool, cmd_buffer: CommandBuffer) usize {
-        const index = (@intFromPtr(cmd_buffer.buffer.ptr) - @intFromPtr(self.backing_mem.ptr)) / (@sizeOf(Command) * max_frames_in_flight);
-        if (index != 0) {
-            assert(index == 1);
-        }
+    pub fn getBufferIndex(self: *const CommandBufferPool, cmd_buffer: CommandBuffer) u2 {
+        assert(@intFromPtr(cmd_buffer.buffer.ptr) >= @intFromPtr(self.backing_mem.ptr));
+        const offset_bytes = @intFromPtr(cmd_buffer.buffer.ptr) - @intFromPtr(self.backing_mem.ptr);
+        const offset_commands = offset_bytes / @sizeOf(Command);
+        assert(offset_commands % max_commands == 0);
+        const index: usize = offset_commands / max_commands;
         assert(index < max_frames_in_flight);
-        return index;
+        return @intCast(index);
     }
 };
 
@@ -103,21 +103,18 @@ pub fn deinit(self: *Renderer, allocator: std.mem.Allocator) void {
 }
 
 pub fn renderLoop(self: *Renderer, is_running: *Atomic(bool)) void {
-    while (true) {
+    while (is_running.load(.monotonic) == true) {
+        while (self.cmd_buffer_pool.acquireReady()) |command_buffer| {
+            defer self.cmd_buffer_pool.release(command_buffer);
+
+            const framebuffer = self.framebuffer_pool.acquireAvalible() orelse continue;
+            defer self.framebuffer_pool.releaseReady(framebuffer);
+
+            for (command_buffer.buffer) |command| {
+                executeCommand(command, framebuffer);
+            }
+        }
         self.wake_up.wait();
-        if (is_running.load(.monotonic) == false) {
-            break;
-        }
-        const framebuffer = self.framebuffer_pool.acquireAvalible() orelse continue;
-        defer self.framebuffer_pool.releaseReady(framebuffer);
-        framebuffer.clear(0);
-
-        const command_buffer = self.begin() orelse continue;
-        defer self.end(command_buffer);
-
-        for (command_buffer.buffer) |command| {
-            executeCommand(command, framebuffer);
-        }
     }
     log.info("Render loop exited", .{});
 }
@@ -128,11 +125,6 @@ pub fn acquireCommandBuffer(self: *Renderer) ?CommandBuffer {
 
 pub fn submitCommandBuffer(self: *Renderer, command_buffer: CommandBuffer) void {
     self.cmd_buffer_pool.releaseReady(command_buffer);
-    if (self.is_rendering.load(.monotonic)) {
-        std.log.warn("render called while already rendering, ignoring.", .{});
-
-        return;
-    }
     self.wake_up.post();
 }
 
@@ -164,3 +156,30 @@ fn end(self: *Renderer, command_buffer: CommandBuffer) void {
         @panic("rendering is false when ending render");
     }
 }
+const AutoResetEvent = struct {
+    mutex: std.Thread.Mutex = .{},
+    cond: std.Thread.Condition = .{},
+    signaled: bool = false,
+
+    pub fn wait(self: *AutoResetEvent) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // reset before waiting
+        self.signaled = false;
+
+        while (!self.signaled) {
+            self.cond.wait(&self.mutex);
+        }
+    }
+
+    pub fn post(self: *AutoResetEvent) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (!self.signaled) {
+            self.signaled = true;
+            self.cond.signal();
+        }
+    }
+};

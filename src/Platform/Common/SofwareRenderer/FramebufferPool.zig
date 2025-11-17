@@ -180,6 +180,7 @@ fn getBufferIndex(self: *const FramebufferPool, framebuffer: Framebuffer) u2 {
     const offset_pixels = offset_bytes / bytes_per_pixel;
     assert(offset_pixels % self.maxPixelsPerBuffer() == 0);
     const index: usize = offset_pixels / self.maxPixelsPerBuffer();
+    if (index != 0) {}
     assert(index < buffer_count);
     return @intCast(index);
 }
