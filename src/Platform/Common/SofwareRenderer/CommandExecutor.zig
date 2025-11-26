@@ -2,18 +2,19 @@ const std = @import("std");
 const FramebufferPool = @import("FramebufferPool.zig");
 const engine = @import("Engine");
 const math = engine.math;
+const Color = math.Color;
 const CommandBuffer = engine.RenderCommandBuffer;
 const Command = CommandBuffer.Command;
-const Color = CommandBuffer.Color;
 const Rectf = CommandBuffer.Rectf;
 const Rectu = CommandBuffer.Rectu;
+const Sprite = engine.Sprite;
 
 const log = std.log.scoped(.renderer);
 
 pub fn executeCommand(command: CommandBuffer.Command, framebuffer: FramebufferPool.Framebuffer) void {
     switch (command) {
-        .draw_rect => |draw_rect| {
-            drawRect(framebuffer, draw_rect.rect, draw_rect.color);
+        .draw_rect => |sprite| {
+            drawRect(framebuffer, sprite);
         },
         .clear => |color| {
             @memset(framebuffer.memory, toBGRA(color));
@@ -30,9 +31,11 @@ fn toBGRA(color: Color) u32 {
 
 pub fn drawRect(
     framebuffer: FramebufferPool.Framebuffer,
-    rect: Rectf,
-    color: Color,
+    sprite: Sprite,
 ) void {
+    const rect = sprite.rect;
+    const color = sprite.color;
+
     const shifted_rect = rect.shift(-rect.width * 0.5, -rect.height * 0.5);
 
     const cliped_rect = shifted_rect.clip(-1.0, -1.0, 1.0, 1.0);
@@ -50,7 +53,6 @@ pub fn drawRect(
         const end_index = start_index + pixel_space_rect.width;
 
         @memset(framebuffer.memory[start_index..end_index], bgra_color);
-        std.debug.assert(framebuffer.memory[start_index] == bgra_color);
     }
 }
 

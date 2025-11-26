@@ -1,13 +1,8 @@
 const std = @import("std");
 
 const math = @import("math");
-
-pub const Color = struct {
-    r: f32,
-    g: f32,
-    b: f32,
-    a: f32,
-};
+const Color = math.Color;
+const Sprite = @import("Sprite.zig");
 
 const CommandBuffer = @This();
 
@@ -17,13 +12,8 @@ buffer: []Command,
 count: usize = 0,
 
 pub const Command = union(enum) {
-    draw_rect: DrawRect,
+    draw_rect: Sprite,
     clear: Color,
-
-    pub const DrawRect = struct {
-        rect: Rectf,
-        color: Color,
-    };
 };
 
 pub fn init(memory: []Command) CommandBuffer {

@@ -31,6 +31,24 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const utils = b.createModule(.{
+        .root_source_file = b.path("src/Engine/utils/utils.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const ecs = b.createModule(.{
+        .root_source_file = b.path("src/Engine/ECS/ecs.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const physics = b.createModule(.{
+        .root_source_file = b.path("src/Engine/Physics/Physics.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const options_mod = options.createModule();
 
     const platfrom_layer_common = b.addModule("PlatformLayerCommon", .{
@@ -49,6 +67,13 @@ pub fn build(b: *std.Build) !void {
     });
 
     engine.addImport("math", math);
+    engine.addImport("utils", utils);
+    engine.addImport("ecs", ecs);
+
+    ecs.addImport("math", math);
+
+    physics.addImport("math", math);
+    physics.addImport("math", math);
 
     mac_os_mod.addImport("Engine", engine);
     mac_os_mod.addImport("common", platfrom_layer_common);

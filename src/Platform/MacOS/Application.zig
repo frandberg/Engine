@@ -102,13 +102,12 @@ pub fn run(self: *Application) !void {
 
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
         self,
-        @as(f64, 1.0 / 85.0),
+        @as(f64, 1.0 / 60.0),
     });
 
-    self.cocoaLoop(
-        game_thread,
-        render_thread,
-    );
+    self.cocoaLoop();
+    game_thread.join();
+    render_thread.join();
 }
 
 fn gameLoop(self: *Application, time_step_s: f64) void {
@@ -137,8 +136,6 @@ fn gameLoop(self: *Application, time_step_s: f64) void {
 const event_timeout_seconds: f64 = 0.001;
 fn cocoaLoop(
     self: *Application,
-    game_thread: std.Thread,
-    render_thread: std.Thread,
 ) void {
     const mtl_context = &self.mtl_context;
     const framebuffer_pool = &self.renderer.framebuffer_pool;
@@ -154,8 +151,6 @@ fn cocoaLoop(
         self.updateState();
     }
     log.info("cocoa loop exited", .{});
-    game_thread.join();
-    render_thread.join();
 }
 
 fn updateState(self: *Application) void {

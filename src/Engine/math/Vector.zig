@@ -1,25 +1,75 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const Elem = std.meta.Elem;
 
-pub fn VecLen(comptime VecType: type) comptime_int {
-    comptime assert(@typeInfo(VecType) == .vector);
-    return @typeInfo(VecType).vector.len;
+pub fn Vec2(comptime T: type) type {
+    return extern struct {
+        pub const SimdT = @Vector(2, T);
+        x: T align(@alignOf(SimdT)),
+        y: T,
+    };
 }
 
-pub fn splat(scalar: anytype, len: comptime_int) @Vector(len, @TypeOf(scalar)) {
-    return @splat(scalar);
+pub fn Vec3(comptime T: type) type {
+    return extern struct {
+        pub const SimdT = @Vector(3, T);
+        x: T align(@alignOf(SimdT)),
+        y: T,
+        z: T,
+    };
 }
 
-pub fn dot(v1: anytype, v2: anytype) Elem(@TypeOf(v1)) {
-    comptime {
-        assert(Elem(@TypeOf(v1)) == Elem(@TypeOf(v2)));
-        assert(VecLen(@TypeOf(v1)) == VecLen(@TypeOf(v2)));
+pub fn Vec4(comptime T: type) type {
+    return extern struct {
+        pub const SimdT = @Vector(4, T);
+        x: T align(@alignOf(SimdT)),
+        y: T,
+        z: T,
+        w: T,
+    };
+}
+
+fn VecT(SimdT: type) type {
+    comptime std.debug.assert(@typeInfo(SimdT) == .vector);
+    const len = @typeInfo(SimdT).vector.len;
+    const ElemT = std.meta.Elem(SimdT);
+    return switch (len) {
+        2 => Vec2(ElemT),
+        3 => Vec3(ElemT),
+        4 => Vec4(ElemT),
+        else => @compileError("Unsupported vector length"),
+    };
+}
+
+pub fn vec(simd_vec: anytype) VecT(@TypeOf(simd_vec)) {
+    return @bitCast(simd_vec);
+}
+
+pub fn simd(struct_vec: anytype) @TypeOf(struct_vec).SimdT {
+    return @bitCast(struct_vec);
+}
+
+pub fn is_vec(maybe_vec: anytype) bool {
+    const T = @TypeOf(maybe_vec);
+    const ElemT = std.meta.fields(T)[0].type;
+    const len = std.meta.fields(T).len;
+    return switch (len) {
+        2 => T == Vec2(ElemT),
+        3 => T == Vec3(ElemT),
+        3 => T == Vec4(ElemT),
+        else => false,
+    };
+}
+
+pub fn is_simd(maybe_simd: anytype) bool {
+    return @typeInfo(@TypeOf(maybe_simd)) == .vector;
+}
+
+pub fn dot(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    if (is_vec(a)) {
+        return vec(@reduce(.Add, simd(a) * simd(b)));
     }
-    return @reduce(.Add, v1 * v2);
-}
-
-pub fn normalize(vec: anytype) @TypeOf(vec) {
-    const len = std.math.sqrt(dot(vec, vec));
-    return vec / splat(len, VecLen(@TypeOf(vec)));
+    if (is_simd(a)) {
+        return @reduce(.Add, a * b);
+    }
+    @compileError("non vector type in dot product");
 }

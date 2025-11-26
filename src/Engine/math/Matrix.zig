@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const VecT = @import("Vector.zig").VecT;
+
 pub const Mat2f = Mat(2, f32);
 pub const Mat3f = Mat(3, f32);
 pub const Mat4f = Mat(4, f32);
@@ -8,12 +10,12 @@ pub const Mat4f = Mat(4, f32);
 pub fn Mat(comptime N: comptime_int, comptime ElementT: type) type {
     return struct {
         const Self = @This();
-        pub const VecT = @Vector(N, ElementT);
+        pub const SimdT = @Vector(N, ElementT);
 
-        rows: [N]VecT,
+        rows: [N]SimdT,
 
-        pub fn column(self: Self, index: comptime_int) VecT {
-            var result: VecT = undefined;
+        pub fn column(self: Self, index: comptime_int) SimdT {
+            var result: SimdT = undefined;
             inline for (0..N) |row_index| {
                 result[row_index] = self.rows[row_index][index];
             }
@@ -43,12 +45,19 @@ pub fn Mat(comptime N: comptime_int, comptime ElementT: type) type {
             return result;
         }
 
-        pub fn mulVec(self: Self, vec: VecT) VecT {
-            var result: VecT = undefined;
+        pub fn mulVec(self: Self, vec: anytype) VecT(SimdT) {
+            const simd_vec: SimdT = if (comptime Vector.is_simd(vec))
+                vec
+            else if (comptime Vector.is_vec(vec))
+                Vector.simd(vec)
+            else
+                @compileError("Expected vector type");
+
+            var result: SimdT = undefined;
             inline for (self.rows, 0..) |row, i| {
-                result[i] = Vector.dot(row, vec);
+                result[i] = @reduce(.Add, row * simd_vec);
             }
-            return result;
+            return vec(result);
         }
     };
 }
