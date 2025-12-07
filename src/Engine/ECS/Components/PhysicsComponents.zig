@@ -9,5 +9,5 @@ pub const RigidBody2D = struct {
 
     shape: Shape,
     velocity: Vec2f,
-    acceleration: Vec2f,
+    acceleration: Vec2f = .{ .x = 0.0, .y = 0.0 },
 };

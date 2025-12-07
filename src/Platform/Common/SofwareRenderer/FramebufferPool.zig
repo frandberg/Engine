@@ -130,7 +130,7 @@ fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
 
 pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
     if (self.isResizeing()) {
-        if (self.state.avalibleBufferCount() == BufferPoolState.buffer_count) {
+        if (BufferPoolState.avalibleBufferCount(self.state.state.load(.monotonic)) == BufferPoolState.buffer_count) {
             self.applyResize();
         } else {
             return null;

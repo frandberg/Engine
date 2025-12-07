@@ -1,15 +1,17 @@
 const std = @import("std");
-const AABB = @import("AABB.zig");
 const math = @import("math");
+const AABB = math.AABB;
 const Vec2f = math.Vec2f;
 const Mat3f = math.Mat3f;
 const assert = std.debug.assert;
 
 const ecs = @import("ecs");
+const EntityID = ecs.EntityID;
+
+const RigidBody = ecs.PhysicComponents.RigidBody2D;
 
 const f_max = std.math.floatMax(f32);
 const inf = std.math.inf(f32);
-const RigidBody = @import("RigidBody.zig");
 
 const VecLen = std.simd.suggestVectorLength(f32) orelse @compileError("No SIMD support for f32 on this target");
 
@@ -20,52 +22,65 @@ pub const IndexPair = struct {
     b: usize,
 };
 
-const Result = struct {
-    index_pair: IndexPair = .{
-        .a = std.math.maxInt(usize),
-        .b = std.math.maxInt(usize),
+const Result = struct { entity_pair: [2]EntityID, time: f32 };
+
+const signature: ecs.Signature = .encode(
+    &.{
+        .RigidBody2D,
+        .Transform2D,
     },
-    time: f32 = inf,
-};
+);
 
-pub fn firstCollisionTime(allocator: std.mem.Allocator, rigid_bodies: []const RigidBody, transforms: []const math.Transform2D, index_pairs: []const IndexPair, time_step: f32) ?Result {
-    assert(rigid_bodies.len < std.math.maxInt(usize));
-    const aabbs: []AABB = allocator.alloc(AABB, rigid_bodies.len) catch unreachable;
-    defer allocator.free(aabbs);
-
-    for (rigid_bodies, transforms, 0..) |body, transform, i| {
-        aabbs[i] = RigidBody.rectAabb(body.shape.rect, transform.toMat3());
+pub fn firstCollisionTime(arena: std.mem.Allocator, world: *ecs.World, time_step: f32) ?Result {
+    var iter = world.iterator(signature);
+    var aabbs: std.ArrayListUnmanaged(AABB) = .empty;
+    var velocities: std.ArrayListUnmanaged(Vec2f) = .empty;
+    var entities: std.ArrayListUnmanaged(ecs.EntityID) = .empty;
+    while (iter.next()) |entity| {
+        const transform = world.getComponent(entity, .transform).?;
+        const rigid_body = world.getComponent(entity, .rigid_body).?;
+        const aabb = AABB.rectAabb(rigid_body.shape.rect, transform.mat3());
+        aabbs.append(aabb) catch unreachable;
+        velocities.append(rigid_body.velocity) catch unreachable;
+        entities.append(entity) catch unreachable;
     }
-    var result: Result = .{};
+    defer arena.free(aabbs);
 
-    var a: AabbCollisionData = undefined;
-    var b: AabbCollisionData = undefined;
-    var index_pairs_in_vecs: [VecLen]IndexPair = undefined;
-    for (index_pairs, 0..) |indices, i| {
-        const vec_idx = i % VecLen;
-        a.addAabb(aabbs[indices.a], rigid_bodies[indices.a].velocity, vec_idx);
-        b.addAabb(aabbs[indices.b], rigid_bodies[indices.b].velocity, vec_idx);
-        index_pairs_in_vecs[vec_idx] = indices;
-        if (vec_idx == VecLen - 1) {
-            const new_result = aabbVsAabb(a, b);
-            if (new_result.time < result.time) {
-                result.time = new_result.time;
-                result.index_pair = index_pairs_in_vecs[new_result.index];
+    var result: Result = undefined;
+    result.time = inf;
+
+    var as: AabbCollisionData = undefined;
+    var bs: AabbCollisionData = undefined;
+    var entities_in_vecs: [VecLen][2]EntityID = undefined;
+    var vec_idx: usize = 0;
+    for (aabbs.items, velocities.items, entities.items, 0..) |a, vel_a, ent_a, i| {
+        for (aabbs.items[i..], velocities[i..], entities[i..]) |b, vel_b, ent_b| {
+            as.addAabb(a, vel_a, vec_idx);
+            bs.addAabb(b, vel_b, vec_idx);
+            entities_in_vecs[vec_idx] = .{ ent_a, ent_b };
+
+            if (vec_idx == VecLen - 1) {
+                const new_result = aabbVsAabb(as, bs);
+                if (new_result.time < result.time) {
+                    result.time = new_result.time;
+                    result.entity_pair = entities_in_vecs[new_result.index];
+                }
             }
+            vec_idx = (vec_idx + 1) % VecLen;
         }
     }
-    if (index_pairs.len % VecLen != 0) {
-        var vec_idx = index_pairs.len % VecLen;
-        const first_dummy = vec_idx;
-        while (vec_idx < VecLen) : (vec_idx += 1) {
-            a.addDummyData(vec_idx);
-            b.addDummyData(vec_idx);
+    if (entities.items.len % VecLen != 0) {
+        var idx = entities.items.len % VecLen;
+        const first_dummy = idx;
+        while (idx < VecLen) : (idx += 1) {
+            as.addDummyData(idx);
+            bs.addDummyData(idx);
         }
-        const new_result = aabbVsAabb(a, b);
+        const new_result = aabbVsAabb(as, bs);
         if (new_result.time < result.time) {
             assert(new_result.index < first_dummy);
             result.time = new_result.time;
-            result.index_pair = index_pairs_in_vecs[new_result.index];
+            result.index_pair = entities_in_vecs[new_result.index];
         }
     }
     assert(result.time >= 0.0);

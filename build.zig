@@ -98,4 +98,10 @@ pub fn build(b: *std.Build) !void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+
+    const run_step = b.step("run", "Run the Engine executable");
+    run_step.dependOn(&run_cmd.step);
+
+    const debug = b.step("debug", "debug step");
+    debug.dependOn(b.getInstallStep());
 }

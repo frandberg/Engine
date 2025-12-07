@@ -33,8 +33,8 @@ pub fn BufferPoolState(comptime count: comptime_int) type {
 
             while (true) {
                 assertStateValid(state);
-                if (self.avalibleBufferCount() == 0) {
-                    return null;
+                if (avalibleBufferCount(state) == 0) {
+                    return self.acquireReady();
                 }
                 const index_bit: IntT = nextFreeIndexBit(state) orelse return null;
                 assert(index_bit & state.ready_index_bit == 0);
@@ -127,15 +127,16 @@ pub fn BufferPoolState(comptime count: comptime_int) type {
             }
         }
 
-        pub fn avalibleBufferCount(self: *Self) usize {
-            return buffer_count - @popCount(self.state.load(.monotonic).in_use_index_bits);
+        pub fn avalibleBufferCount(state: State) usize {
+            return buffer_count - @popCount(state.in_use_index_bits) - @popCount(state.ready_index_bit);
         }
         fn nextFreeIndexBit(state: State) ?IntT {
             assert(state.ready_index_bit == 0 or std.math.isPowerOfTwo(state.ready_index_bit));
             assert(buffer_count != 0);
             const mask: IntT = @intCast((@as(u32, 1) << @as(u5, buffer_count)) - 1);
 
-            const candidates: IntT = (~state.in_use_index_bits) & (~state.ready_index_bit) & mask;
+            const used: IntT = state.in_use_index_bits | state.ready_index_bit;
+            const candidates: IntT = ~used & mask;
 
             if (candidates == 0) return null;
 

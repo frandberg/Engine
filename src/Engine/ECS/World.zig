@@ -1,12 +1,9 @@
 const std = @import("std");
-const Entity = @import("Entity.zig");
 const Component = @import("Component.zig");
-const Signature = Component.Signature;
-const math = @import("math.zig");
-const Transform2D = math.Transform2D;
-const Physics = @import("../Physics/Physics.zig");
-const RigidBody2D = Physics.RigidBody;
-const Sprite = @import("../Sprite.zig");
+const Signature = @import("Signature.zig");
+const math = @import("math");
+
+pub const Iterator = @import("Iterator.zig");
 
 const root = @import("ecs.zig");
 const log = root.log;
@@ -23,15 +20,15 @@ entities: EntityMap,
 arrays: Component.Arrays,
 next_entity_id: EntityID,
 
-pub fn init(allocator: std.mem.Allocator, max_entities: usize) World {
-    const entities: EntityMap = .empty;
-    entities.ensureTotalCapacity(allocator, max_entities);
+pub fn init(allocator: std.mem.Allocator, max_entities: u32) World {
+    var entities: EntityMap = .empty;
+    entities.ensureTotalCapacity(allocator, max_entities) catch unreachable;
 
     return .{
         .allocator = allocator,
         .entities = entities,
-        .arrays = Component.initArrays(),
-        .nmext_entity_id = 0,
+        .arrays = Component.initArrays(allocator, 256),
+        .next_entity_id = 0,
     };
 }
 
@@ -43,22 +40,28 @@ pub fn deinit(self: *World) void {
 pub fn createEntity(self: *World, components: []const Component.Component) ?EntityID {
     std.debug.assert(self.entities.capacity() >= self.entities.count());
     if (self.entities.count() == self.entities.capacity()) {
-        std.log.err("Max entity limit reached: {}\n", .{self.entities.count});
+        std.log.err("Max entity limit reached: {}\n", .{self.entities.count()});
         return null;
     }
+
     const entity_id = self.next_entity_id;
-    const signature: Signature = .encode(components);
+    const signature: Signature = .encodeComponents(components);
     self.entities.put(self.allocator, entity_id, signature) catch unreachable;
 
     for (components) |component| {
         switch (component) {
-            inline else => |kind, c| {
+            inline else => |c, kind| {
                 const array = Component.getArray(&self.arrays, kind);
                 array.add(self.allocator, entity_id, c);
             },
         }
     }
     self.next_entity_id += 1;
+
+    const sprite_array = @field(self.arrays, "color_sprite");
+    const e = sprite_array.chunks[0].elements.items(.entity)[0];
+    std.debug.print("world: {any}\n", .{e});
+
     return entity_id;
 }
 
@@ -107,4 +110,28 @@ pub fn removeComponent(self: *World, entity_id: EntityID, component_kind: Compon
 
     const array = Component.getArray(&self.arrays, component_kind);
     array.remove(entity_id);
+}
+
+pub fn getComponent(
+    self: *World,
+    comptime kind: Component.Kind,
+    entity_id: EntityID,
+) ?Component.TypeFromKind(kind) {
+    return if (getComponentPtr(self, kind, entity_id)) |c|
+        c.*
+    else
+        null;
+}
+
+pub fn getComponentPtr(
+    self: *World,
+    comptime kind: Component.Kind,
+    entity_id: EntityID,
+) ?*Component.TypeFromKind(kind) {
+    const array = Component.getArray(&self.arrays, kind);
+    return array.getPtr(entity_id);
+}
+
+pub fn iterator(self: *const World, signature: Signature) Iterator {
+    return Iterator.init(self, signature);
 }

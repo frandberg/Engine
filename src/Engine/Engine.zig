@@ -7,7 +7,10 @@ pub const Input = @import("Input.zig");
 pub const GameMemory = @import("GameMemory.zig").GameMemory;
 pub const Physics = @import("Physics/Physics.zig");
 
-pub const ecs = @import("ECS/ecs.zig");
+pub const ecs = @import("ecs");
+
+pub const PhysicsComponents = ecs.PhysicsComponents;
+pub const RendererComponents = ecs.RendererComponents;
 
 pub const Sprite = @import("Sprite.zig");
 pub const IntiGameMemoryFn = fn (game_memory: *const GameMemory) callconv(.c) void;

@@ -17,6 +17,7 @@ const Application = @This();
 const AtomicBool = std.atomic.Value(bool);
 
 allocator: std.mem.Allocator,
+arena_state: std.heap.ArenaAllocator,
 
 mtl_context: MetalContext,
 cocoa_context: CocoaContext,
@@ -62,16 +63,33 @@ pub fn initSystems(allocator: std.mem.Allocator, window_width: u32, window_heigh
 
     const time = Time.init();
 
+    const args_raw = std.process.argsAlloc(allocator) catch {
+        log.err("Failed to allocate args", .{});
+        return error.OutOfMemory;
+    };
+    defer std.process.argsFree(allocator, args_raw);
+    for (args_raw, 0..) |arg, i| {
+        if (i == 0) continue; // skip executable path
+        std.debug.print("arg {d}: {s}\n", .{ i, arg });
+    }
+    if (args.game_lib) |path| {
+        log.info("Loading game library from: {s}", .{path});
+    } else {
+        log.info("No game library specified, using stub functions", .{});
+    }
     const game_code = try GameCode.init(args.game_lib);
 
     var game_memory = try engine.GameMemory.init(allocator);
     errdefer game_memory.deinit(allocator);
     game_code.initGameMemory(&game_memory);
 
+    const arena = std.heap.ArenaAllocator.init(allocator);
+
     log.info("Application initialized", .{});
 
     return .{
         .allocator = allocator,
+        .arena_state = arena,
         .mtl_context = mtl_context,
         .cocoa_context = cocoa_context,
         .time = time,
@@ -88,6 +106,7 @@ pub fn deinit(self: *Application) void {
     self.renderer.deinit(self.allocator);
     self.mtl_context.deinit();
     self.game_memory.deinit(self.allocator);
+    self.arena_state.deinit();
 
     log.info("Application deinitialized", .{});
 }
@@ -102,7 +121,7 @@ pub fn run(self: *Application) !void {
 
     const game_thread = try std.Thread.spawn(.{}, gameLoop, .{
         self,
-        @as(f64, 1.0 / 60.0),
+        @as(f64, 1.0 / 30.0),
     });
 
     self.cocoaLoop();
@@ -117,20 +136,23 @@ fn gameLoop(self: *Application, time_step_s: f64) void {
     );
 
     while (self.running.load(.monotonic)) {
-        var render_command_buffer = self.renderer.acquireCommandBuffer() orelse continue;
+        var render_command_buffer = self.renderer.acquireCommandBuffer() orelse @panic("should not happen\n");
+
         const input = engine.Input.fromPacked(self.input.load(.monotonic));
         self.game_code.updateAndRender(
             &render_command_buffer,
             &self.game_memory,
+            &self.arena_state.allocator(),
             &input,
             time_step_s,
         );
+
         self.renderer.submitCommandBuffer(render_command_buffer);
+        _ = self.arena_state.reset(.free_all);
         timer.wait();
     }
 
     log.info("game loop exited", .{});
-    self.renderer.wake_up.post();
 }
 
 const event_timeout_seconds: f64 = 0.001;
@@ -166,5 +188,6 @@ fn updateState(self: *Application) void {
     }
     if (self.cocoa_context.delegate.closed()) {
         self.running.store(false, .seq_cst);
+        self.renderer.wake_up.post();
     }
 }

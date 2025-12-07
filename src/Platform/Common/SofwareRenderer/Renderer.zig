@@ -24,27 +24,20 @@ const max_frames_in_flight: usize = 2;
 framebuffer_pool: FramebufferPool align(8),
 cmd_buffer_pool: CommandBufferPool,
 
-wake_up: AutoResetEvent = .{},
+wake_up: std.Thread.Semaphore = .{},
 
 const CommandBufferPool = struct {
     backing_mem: []Command,
-    buffers: [max_frames_in_flight]CommandBuffer,
+    counts: [max_frames_in_flight]usize,
     state: BufferPoolState(max_frames_in_flight) = .{},
 
     const max_commands = 1024;
 
     fn init(allocator: std.mem.Allocator) !CommandBufferPool {
         const backing_mem = try allocator.alloc(Command, max_commands * max_frames_in_flight);
-        var buffers: [max_frames_in_flight]CommandBuffer = undefined;
-        for (0..max_frames_in_flight) |i| {
-            buffers[i] = .{
-                .buffer = backing_mem[i * max_commands .. (i + 1) * max_commands],
-                .count = 0,
-            };
-        }
         return .{
             .backing_mem = backing_mem,
-            .buffers = buffers,
+            .counts = .{ 0, 0 },
         };
     }
     fn deinit(self: *CommandBufferPool, allocator: std.mem.Allocator) void {
@@ -52,23 +45,34 @@ const CommandBufferPool = struct {
     }
 
     fn acquireAvalible(self: *CommandBufferPool) ?CommandBuffer {
-        return if (self.state.acquireAvalible()) |index| self.getBuffer(index) else null;
+        const index = self.state.acquireAvalible() orelse return null;
+
+        const buffer = self.getBuffer(index);
+        return buffer;
     }
     fn releaseReady(self: *CommandBufferPool, cmd_buffer: CommandBuffer) void {
-        self.state.releaseReady(self.getBufferIndex(cmd_buffer), false);
+        const index = self.getBufferIndex(cmd_buffer);
+        self.counts[index] = cmd_buffer.count;
+        self.state.releaseReady(index, false);
     }
 
     fn acquireReady(self: *CommandBufferPool) ?CommandBuffer {
-        return if (self.state.acquireReady()) |index| self.getBuffer(index) else null;
+        const index = self.state.acquireReady() orelse return null;
+        const buffer = self.getBuffer(index);
+        return buffer;
     }
 
     fn release(self: *CommandBufferPool, cmd_buffer: CommandBuffer) void {
-        self.buffers[self.getBufferIndex(cmd_buffer)].count = 0;
-        self.state.release(self.getBufferIndex(cmd_buffer));
+        const index = self.getBufferIndex(cmd_buffer);
+        self.counts[index] = 0;
+        self.state.release(index);
     }
     fn getBuffer(self: *const CommandBufferPool, index: usize) CommandBuffer {
         assert(index < max_frames_in_flight);
-        return self.buffers[index];
+        return .{
+            .buffer = self.backing_mem[index * max_commands .. (index + 1) * max_commands],
+            .count = self.counts[index],
+        };
     }
 
     pub fn getBufferIndex(self: *const CommandBufferPool, cmd_buffer: CommandBuffer) u2 {
@@ -103,16 +107,15 @@ pub fn deinit(self: *Renderer, allocator: std.mem.Allocator) void {
 }
 
 pub fn renderLoop(self: *Renderer, is_running: *Atomic(bool)) void {
-    while (is_running.load(.monotonic) == true) {
+    while (is_running.load(.seq_cst) == true) {
         while (self.cmd_buffer_pool.acquireReady()) |command_buffer| {
-            defer self.cmd_buffer_pool.release(command_buffer);
-
             const framebuffer = self.framebuffer_pool.acquireAvalible() orelse continue;
             defer self.framebuffer_pool.releaseReady(framebuffer);
 
-            for (command_buffer.buffer) |command| {
+            for (command_buffer.buffer[0..command_buffer.count]) |command| {
                 executeCommand(command, framebuffer);
             }
+            self.cmd_buffer_pool.release(command_buffer);
         }
         self.wake_up.wait();
     }
@@ -128,34 +131,6 @@ pub fn submitCommandBuffer(self: *Renderer, command_buffer: CommandBuffer) void 
     self.wake_up.post();
 }
 
-fn begin(self: *Renderer) ?CommandBuffer {
-    if (self.is_rendering.cmpxchgStrong(
-        false,
-        true,
-        .monotonic,
-        .monotonic,
-    )) |_| {
-        return null;
-    }
-    if (self.cmd_buffer_pool.acquireReady()) |command_buffer| {
-        return command_buffer;
-    } else {
-        self.is_rendering.store(false, .monotonic);
-        return null;
-    }
-}
-
-fn end(self: *Renderer, command_buffer: CommandBuffer) void {
-    self.cmd_buffer_pool.release(command_buffer);
-    if (self.is_rendering.cmpxchgStrong(
-        true,
-        false,
-        .monotonic,
-        .monotonic,
-    )) |_| {
-        @panic("rendering is false when ending render");
-    }
-}
 const AutoResetEvent = struct {
     mutex: std.Thread.Mutex = .{},
     cond: std.Thread.Condition = .{},

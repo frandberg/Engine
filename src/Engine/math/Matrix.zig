@@ -46,18 +46,18 @@ pub fn Mat(comptime N: comptime_int, comptime ElementT: type) type {
         }
 
         pub fn mulVec(self: Self, vec: anytype) VecT(SimdT) {
-            const simd_vec: SimdT = if (comptime Vector.is_simd(vec))
+            const simd_vec: SimdT = if (comptime Vector.is_simd(@TypeOf(vec)))
                 vec
-            else if (comptime Vector.is_vec(vec))
+            else if (comptime Vector.is_vec(@TypeOf(vec)))
                 Vector.simd(vec)
             else
-                @compileError("Expected vector type");
+                @compileError("mulVec expects a vector type");
 
             var result: SimdT = undefined;
             inline for (self.rows, 0..) |row, i| {
                 result[i] = @reduce(.Add, row * simd_vec);
             }
-            return vec(result);
+            return Vector.vec(result);
         }
     };
 }

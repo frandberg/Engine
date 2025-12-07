@@ -1,6 +1,6 @@
-const math = @import("math.zig");
+const math = @import("math");
 
 pub const ColorSprite = struct {
-    rect: math.Rect(f32),
+    rect: math.Rect,
     color: math.Color,
 };

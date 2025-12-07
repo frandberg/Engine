@@ -52,11 +52,12 @@ pub fn updateAndRender(
     self: *const GameCode,
     render_command_buffer: *engine.RenderCommandBuffer,
     game_memory: *const engine.GameMemory,
+    arena: *const std.mem.Allocator,
     input: *const engine.Input,
     time_step_s: f64,
 ) void {
-    self.update_and_render_fn(render_command_buffer, game_memory, input, time_step_s);
+    self.update_and_render_fn(render_command_buffer, game_memory, arena, input, time_step_s);
 }
 
 fn initGameMemoryStub(_: *const engine.GameMemory) callconv(.c) void {}
-fn updateAndRenderStub(_: *engine.RenderCommandBuffer, _: *const engine.GameMemory, _: *const engine.Input, _: f64) callconv(.c) void {}
+fn updateAndRenderStub(_: *engine.RenderCommandBuffer, _: *const engine.GameMemory, _: *const std.mem.Allocator, _: *const engine.Input, _: f64) callconv(.c) void {}

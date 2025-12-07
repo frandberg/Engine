@@ -1,4 +1,104 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="ZigToolchain" toolchain="02f0acf1-263c-43b4-8f65-5b97340c5251" />
+  <component name="BuildScanner">
+    <option name="projects">
+      <list><![CDATA[{
+  "name": null,
+  "version": null,
+  "path": "/Users/alfredfrandberg/dev/Engine",
+  "steps": [
+    {
+      "name": "install",
+      "description": "Copy build artifacts to prefix path",
+      "kind": "install_artifact"
+    },
+    {
+      "name": "uninstall",
+      "description": "Remove build artifacts from prefix path",
+      "kind": "uninstall"
+    }
+  ],
+  "modules": [
+    {
+      "root": "src/Engine/Engine.zig",
+      "public": true,
+      "imports": []
+    },
+    {
+      "root": "src/Platform/Common/Common.zig",
+      "public": true,
+      "imports": [
+        {
+          "name": "Engine",
+          "owner": 0,
+          "module": 0
+        }
+      ]
+    },
+    {
+      "root": "src/Platform/MacOS/main.zig",
+      "public": false,
+      "imports": [
+        {
+          "name": "Engine",
+          "owner": 0,
+          "module": 0
+        },
+        {
+          "name": "common",
+          "owner": 0,
+          "module": 1
+        },
+        {
+          "name": "objc",
+          "owner": 1,
+          "module": 0
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "project": 1,
+      "lazy": false
+    }
+  ]
+}]]><![CDATA[{
+  "name": null,
+  "version": null,
+  "path": "/Users/alfredfrandberg/.cache/zig/p/zig_objc-0.0.0-Ir_Sp5gTAQCvxxR7oVIrPXxXwsfKgVP7_wqoOQrZjFeK",
+  "steps": [
+    {
+      "name": "install",
+      "description": "Copy build artifacts to prefix path",
+      "kind": "install_artifact"
+    },
+    {
+      "name": "uninstall",
+      "description": "Remove build artifacts from prefix path",
+      "kind": "uninstall"
+    },
+    {
+      "name": "test",
+      "description": "Run tests",
+      "kind": "run"
+    }
+  ],
+  "modules": [
+    {
+      "root": "src/main.zig",
+      "public": true,
+      "imports": []
+    },
+    {
+      "root": "src/main.zig",
+      "public": false,
+      "imports": []
+    }
+  ],
+  "dependencies": []
+}]]></list>
+    </option>
+  </component>
+  <component name="ZigToolchain" toolchain="0e2a5f82-3142-449f-a5e9-6ad357ae531e" />
 </project>

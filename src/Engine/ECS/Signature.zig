@@ -6,7 +6,7 @@ const KindCount = Component.KindCount;
 
 const componentIndex = Component.componentIndex;
 
-const Signature = @This();
+pub const Signature = @This();
 
 const BitsT = std.bit_set.StaticBitSet(KindCount);
 bits: BitsT,
@@ -20,6 +20,21 @@ pub fn encode(components: []const Kind) Signature {
     return .{
         .bits = bit_set,
     };
+}
+
+pub fn encodeComponents(components: []const Component.Component) Signature {
+    var tags: [KindCount]Kind = undefined;
+    var count: usize = 0;
+
+    for (components) |component| {
+        switch (component) {
+            inline else => |_, kind| {
+                tags[count] = kind;
+                count += 1;
+            },
+        }
+    }
+    return .encode(tags[0..count]);
 }
 
 pub fn decode(self: Signature) []const Kind {
