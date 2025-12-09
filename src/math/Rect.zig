@@ -1,12 +1,13 @@
 const std = @import("std");
 const Vector = @import("Vector.zig");
+const math = @import("root.zig");
 const Vec2f = Vector.Vec2f;
 
 const AABB = @import("AABB.zig");
 
 const Transform2D = @import("Transform.zig").Transform2D;
 
-const Quad2D = @import("math.zig").Quad2D;
+const Quad2D = math.Quad2D;
 
 const Rect = @This();
 

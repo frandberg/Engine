@@ -33,7 +33,7 @@ pub fn BufferPoolState(comptime count: comptime_int) type {
 
             while (true) {
                 assertStateValid(state);
-                if (avalibleBufferCount(state) == 0) {
+                if (avalibleCount(state) == 0) {
                     return self.acquireReady();
                 }
                 const index_bit: IntT = nextFreeIndexBit(state) orelse return null;
@@ -127,7 +127,11 @@ pub fn BufferPoolState(comptime count: comptime_int) type {
             }
         }
 
-        pub fn avalibleBufferCount(state: State) usize {
+        pub fn avalibleBufferCount(self: *Self) usize {
+            return avalibleCount(self.state.load(.monotonic));
+        }
+
+        fn avalibleCount(state: State) usize {
             return buffer_count - @popCount(state.in_use_index_bits) - @popCount(state.ready_index_bit);
         }
         fn nextFreeIndexBit(state: State) ?IntT {

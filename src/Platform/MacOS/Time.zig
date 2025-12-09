@@ -25,7 +25,7 @@ pub const RepeatingTimer = struct {
         }
     };
 
-    pub fn initAndStart(time: *const Time, time_step_seconds: f64) RepeatingTimer {
+    pub fn start(time: *const Time, time_step_seconds: f64) RepeatingTimer {
         return .{
             .time = time,
             .start_time = c.mach_absolute_time(),

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const math = @import("math.zig");
+const math = @import("root.zig");
 const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
 const Rectf = math.Rectf;

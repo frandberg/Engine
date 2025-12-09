@@ -1,32 +1,27 @@
 const std = @import("std");
 const FramebufferPool = @import("FramebufferPool.zig");
-const engine = @import("Engine");
-const ecs = engine.ecs;
-const math = engine.math;
+const math = @import("math");
 const Color = math.Color;
-const CommandBuffer = engine.RenderCommandBuffer;
+const CommandBuffer = @import("../Render/CommandBuffer.zig");
 const Command = CommandBuffer.Command;
-const Rectf = math.Rect(f32);
-const Rectu = math.Rect(u32);
+const Rect = math.Rect;
 const Vec2f = math.Vec2f;
-const ColorSprite = ecs.ColorSprite;
 const AABB = math.AABB;
 const Transform2D = math.Transform2D;
 
-const Framebuffer = FramebufferPool.Framebuffer;
+const Sprite = @import("../Render/Sprite.zig");
+const ColorSprite = Sprite.ColorSprite;
 
-fn edge(a: Vec2f, b: Vec2f, p: Vec2f) f32 {
-    const ab: Vec2f = vec(simd(b) - simd(a));
-    const ap: Vec2f = vec(simd(p) - simd(a));
-    return math.signedArea(ab, ap);
-}
+const edge = math.edge;
+
+const Framebuffer = FramebufferPool.Framebuffer;
 
 const log = std.log.scoped(.renderer);
 
 pub fn executeCommand(command: CommandBuffer.Command, framebuffer: FramebufferPool.Framebuffer) void {
     switch (command) {
         .draw_sprite => |data| {
-            drawRect(framebuffer, data.sprite, data.transform);
+            drawColorSprite(framebuffer, data.sprite, data.transform);
         },
         .clear => |color| {
             @memset(framebuffer.memory, toBGRA(color));
@@ -41,7 +36,7 @@ fn toBGRA(color: Color) u32 {
         @as(u32, @intFromFloat(@round(color.a * 255.0))) << 24;
 }
 
-pub fn drawRect(
+pub fn drawColorSprite(
     framebuffer: FramebufferPool.Framebuffer,
     sprite: ColorSprite,
     transform: Transform2D,
@@ -67,13 +62,11 @@ pub fn drawRect(
     };
 
     var vertex_buffer: [8]Vec2f = undefined;
-    std.debug.print("un clippedf vertices: {any}\n", .{quad});
     const polygon_vertices = math.Clip.quad2DByAABB(
         quad,
         bounds,
         &vertex_buffer,
     );
-    std.debug.print("clipped polygon vertices: {any}\n", .{polygon_vertices});
 
     var last_corner_index: u8 = 2;
     while (last_corner_index < polygon_vertices.len) : (last_corner_index += 1) {

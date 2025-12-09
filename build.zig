@@ -4,104 +4,61 @@ const macos_frameworks: []const []const u8 = &.{
     "CoreFoundation",
     "Appkit",
     "Metal",
-    "IOKit",
     "Carbon",
-};
-
-const HotReloadConfig = struct {
-    src_dir: std.Build.LazyPath,
-    args: ?[]const []const u8 = null,
 };
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const options = b.addOptions();
-
-    const engine = b.addModule("Engine", .{
-        .root_source_file = b.path("src/Engine/Engine.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const math = b.createModule(.{
-        .root_source_file = b.path("src/Engine/math/math.zig"),
+        .root_source_file = b.path("src/math/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const utils = b.createModule(.{
-        .root_source_file = b.path("src/Engine/utils/utils.zig"),
+        .root_source_file = b.path("src/Utils/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const ecs = b.createModule(.{
-        .root_source_file = b.path("src/Engine/ECS/ecs.zig"),
+    const foundation = b.createModule(.{
+        .root_source_file = b.path("src/Foundation/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const physics = b.createModule(.{
-        .root_source_file = b.path("src/Engine/Physics/Physics.zig"),
+    const engine = b.addModule("Engine", .{
+        .root_source_file = b.path("src/Engine/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const options_mod = options.createModule();
+    const platform = switch (target.result.os.tag) {
+        .macos => blk: {
+            const objc_dep = b.dependency("zig_objc", .{});
+            const mac_os_mod = b.createModule(.{
+                .root_source_file = b.path("src/Platform/MacOS/root.zig"),
+                .target = target,
+                .optimize = optimize,
+            });
+            mac_os_mod.addImport("foundation", foundation);
+            mac_os_mod.addImport("objc", objc_dep.module("objc"));
 
-    const platfrom_layer_common = b.addModule("PlatformLayerCommon", .{
-        .root_source_file = b.path("src/Platform/Common/Common.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    platfrom_layer_common.addImport("Engine", engine);
-    platfrom_layer_common.addImport("options", options_mod);
+            for (macos_frameworks) |framework_name| {
+                mac_os_mod.linkFramework(framework_name, .{});
+            }
+            break :blk mac_os_mod;
+        },
+        else => @panic("Unsupported OS"),
+    };
 
-    const objc_dep = b.dependency("zig_objc", .{});
-    const mac_os_mod = b.createModule(.{
-        .root_source_file = b.path("src/Platform/MacOS/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    foundation.addImport("math", math);
+    foundation.addImport("utils", utils);
 
     engine.addImport("math", math);
     engine.addImport("utils", utils);
-    engine.addImport("ecs", ecs);
-
-    ecs.addImport("math", math);
-
-    physics.addImport("math", math);
-    physics.addImport("math", math);
-
-    mac_os_mod.addImport("Engine", engine);
-    mac_os_mod.addImport("common", platfrom_layer_common);
-    mac_os_mod.addImport("objc", objc_dep.module("objc"));
-
-    for (macos_frameworks) |framework_name| {
-        mac_os_mod.linkFramework(framework_name, .{});
-    }
-
-    const exe = b.addExecutable(.{
-        .name = "Engine",
-        .root_module = switch (target.result.os.tag) {
-            .macos => mac_os_mod,
-            else => @panic("Unsupported OS"),
-        },
-    });
-    b.installArtifact(exe);
-
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    const run_step = b.step("run", "Run the Engine executable");
-    run_step.dependOn(&run_cmd.step);
-
-    const debug = b.step("debug", "debug step");
-    debug.dependOn(b.getInstallStep());
+    engine.addImport("foundation", foundation);
+    engine.addImport("platform", platform);
 }

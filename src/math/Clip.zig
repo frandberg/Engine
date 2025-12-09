@@ -6,7 +6,7 @@ const Vector = @import("Vector.zig");
 const Rect = @import("Rect.zig");
 const Vec2f = Vector.Vec2f;
 
-const math = @import("math.zig");
+const math = @import("root.zig");
 const edge = math.edge;
 
 const assert = std.debug.assert;
@@ -14,9 +14,9 @@ const assert = std.debug.assert;
 const vec = Vector.vec;
 const simd = Vector.simd;
 
-const Quad2D = @import("math.zig").Quad2D;
+const Quad2D = math.Quad2D;
 
-const Line = @import("math.zig").Line;
+//const Line = math.Line;
 
 pub fn quad2DByAABB(quad: Quad2D, aabb: AABB, out_vertices: *[8]Vec2f) []const Vec2f {
     const clip_vertices = aabb.vertices();

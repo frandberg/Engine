@@ -1,26 +1,23 @@
 const std = @import("std");
-const objc = @import("objc");
-const BufferPoolState = @import("../BufferPoolState.zig").BufferPoolState(3);
-
-const Object = objc.Object;
-const nil: objc.c.id = @ptrFromInt(0);
+const utils = @import("utils");
+const BufferPoolState = utils.BufferPoolState;
 
 const FramebufferPool = @This();
 const Atomic = std.atomic.Value;
+const Allocator = std.mem.Allocator;
 
 const log = std.log.scoped(.FramebufferPool);
 const assert = std.debug.assert;
 
-allocator: std.mem.Allocator,
+allocator: Allocator,
 backing_memory: []u32,
 width: u32,
 height: u32,
-// state: Atomic(State) align(8) = Atomic(State).init(.{}),
-//
+
 mem_index: usize = 0,
-state: BufferPoolState = .{},
+state: BufferPoolState(3) = .{},
 new_size: ?Size = null,
-resize_state: Atomic(ResizeState) = Atomic(ResizeState).init(.idle),
+resize_state: Atomic(ResizeState) = .init(.idle),
 
 const page_alignment = std.mem.Alignment.fromByteUnits(std.heap.pageSize());
 
@@ -67,8 +64,8 @@ pub const Framebuffer = struct {
     }
 };
 
-pub fn init(allocator: std.mem.Allocator, info: Info) !FramebufferPool {
-    const allocation_size = info.width * info.height * buffer_count;
+pub fn init(allocator: Allocator, width: u32, height: u32) !FramebufferPool {
+    const allocation_size = width * height * buffer_count;
 
     const backing_memory = try allocator.alignedAlloc(
         u32,
@@ -80,8 +77,8 @@ pub fn init(allocator: std.mem.Allocator, info: Info) !FramebufferPool {
     return .{
         .allocator = allocator,
         .backing_memory = backing_memory,
-        .width = info.width,
-        .height = info.height,
+        .width = width,
+        .height = height,
     };
 }
 
@@ -130,7 +127,7 @@ fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
 
 pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
     if (self.isResizeing()) {
-        if (BufferPoolState.avalibleBufferCount(self.state.state.load(.monotonic)) == BufferPoolState.buffer_count) {
+        if (self.state.avalibleBufferCount() == buffer_count) {
             self.applyResize();
         } else {
             return null;
@@ -141,14 +138,11 @@ pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
 
 pub fn releaseReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
     const discard = self.isResizeing();
-    if (discard) {}
     self.state.releaseReady(self.getBufferIndex(framebuffer), discard);
 }
 
 pub fn acquireReady(self: *FramebufferPool) ?Framebuffer {
-    // std.debug.print("acquireReady\n", .{});
     if (self.isResizeing()) {
-        // std.debug.print("failed to acquire ready\n", .{});
         return null;
     }
     return if (self.state.acquireReady()) |index| self.getBuffer(index) else null;
@@ -157,12 +151,16 @@ pub fn acquireReady(self: *FramebufferPool) ?Framebuffer {
 pub fn release(self: *FramebufferPool, framebuffer: Framebuffer) void {
     self.state.release(self.getBufferIndex(framebuffer));
 }
-pub fn isResizeing(self: *FramebufferPool) bool {
+pub fn isResizeing(self: *const FramebufferPool) bool {
     return self.resize_state.load(.monotonic) == .in_progress;
 }
 
 fn applyResize(self: *FramebufferPool) void {
-    const new_size = self.new_size.?;
+    if (self.state.avalibleBufferCount() != buffer_count) {
+        log.err("cannot apply resize: not all buffers are avalible", .{});
+        return;
+    }
+    const new_size = self.new_size orelse return;
     const allcation_size = new_size.width * new_size.height * buffer_count;
     const new_mem = self.allocator.alignedAlloc(u32, page_alignment, allcation_size) catch return;
     self.allocator.free(self.backing_memory);

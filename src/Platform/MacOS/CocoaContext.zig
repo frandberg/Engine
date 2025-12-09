@@ -1,12 +1,11 @@
 const std = @import("std");
 const objc = @import("objc");
 
-const common = @import("common");
-const engine = @import("Engine");
+const foundation = @import("foundation");
 
-const Input = engine.Input;
+const Input = foundation.Input;
 
-extern fn MTLCreateSystemDefaultDevice() objc.c.id;
+//extern fn MTLCreateSystemDefaultDevice() objc.c.id;
 const c = @cImport({
     @cInclude("CoreGraphics/CoreGraphics.h");
     @cInclude("CoreFoundation/CoreFoundation.h");
@@ -187,15 +186,13 @@ pub const Delegate = struct {
     }
 };
 
-pub fn processEvents(self: *CocoaContext, input: Input) Input {
-    var new_input = input;
+pub fn processInput(self: *CocoaContext, prev_input: Input) Input {
+    var new_input: Input = prev_input;
     while (nextEvent(self.app, 0.001)) |event_id| {
-        if (Object.fromId(event_id).msgSend(usize, "type", .{}) == 10) {
-            toggleKey(&new_input, Object.fromId(event_id).msgSend(u16, "keyCode", .{}), true);
-        } else if (Object.fromId(event_id).msgSend(usize, "type", .{}) == 11) {
-            toggleKey(&new_input, Object.fromId(event_id).msgSend(u16, "keyCode", .{}), false);
-        } else {
-            self.app.msgSend(void, "sendEvent:", .{event_id});
+        switch (Object.fromId(event_id).msgSend(usize, "type", .{})) {
+            10 => toggleKey(&new_input, event_id, true),
+            11 => toggleKey(&new_input, event_id, false),
+            else => self.app.msgSend(void, "sendEvent:", .{event_id}),
         }
         self.app.msgSend(void, "updateWindows", .{});
     }
@@ -223,7 +220,8 @@ fn dateSinceNow(seconds: f64) objc.c.id {
     return NSDate.msgSend(objc.c.id, "dateWithTimeIntervalSinceNow:", .{seconds});
 }
 
-fn toggleKey(input: *Input, key_code: u16, pressed: bool) void {
+fn toggleKey(input: *Input, event_id: objc.c.id, pressed: bool) void {
+    const key_code = Object.fromId(event_id).msgSend(u16, "keyCode", .{});
     switch (key_code) {
         c.kVK_ANSI_A => input.keys_state.a = pressed,
         c.kVK_ANSI_B => input.keys_state.b = pressed,

@@ -1,9 +1,9 @@
 const std = @import("std");
 const objc = @import("objc");
 
-const common = @import("common");
-const Framebuffer = common.Framebuffer;
+const foundation = @import("foundation");
 
+const Framebuffer = foundation.SofwareRenderer.Framebuffer;
 const log = std.log.scoped(.MetalContext);
 
 const CGSize = extern struct {
