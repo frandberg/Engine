@@ -1,4 +1,4 @@
-pub const BufferPoolState = @import("BufferPoolState.zig").BufferPoolState;
+pub const Mailbox = @import("Mailbox.zig");
 
 pub fn bytesFromKB(kilobytes: usize) usize {
     return kilobytes * 1024;

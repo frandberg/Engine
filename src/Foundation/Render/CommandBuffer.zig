@@ -5,6 +5,7 @@ const math = @import("math");
 const Color = math.Color;
 const ColorSprite = Sprite.ColorSprite;
 const Transform2D = math.Transform2D;
+const Camera = @import("Camera.zig");
 
 const CommandBuffer = @This();
 
@@ -13,12 +14,18 @@ const log = std.log.scoped(.command_recorder);
 buffer: []Command,
 count: usize = 0,
 
+pub const ViewSpec = struct {
+    camera: Camera,
+    viewport: math.Rect,
+};
+
 pub const DrawColorSprite = struct {
     sprite: ColorSprite,
-    transform: Transform2D,
+    transform: math.Mat3f,
 };
 pub const Command = union(enum) {
-    draw_sprite: DrawColorSprite,
+    set_view: ViewSpec,
+    draw_color_sprite: DrawColorSprite,
     clear: Color,
 };
 

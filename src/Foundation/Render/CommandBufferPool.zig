@@ -1,58 +1,58 @@
 const std = @import("std");
 const utils = @import("utils");
 const CommandBuffer = @import("CommandBuffer.zig");
+const Mailbox = utils.Mailbox;
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Command = CommandBuffer.Command;
-const BufferPoolState = utils.BufferPoolState;
+const Atomic = std.atomic.Value;
+const log = std.log.scoped(.CommandBufferPool);
 
-//NOTE: Never change this!
-//The const is just for clarity.
-//Our engine should only work on 2 frame max at a time!
-//(Mental note): frames in flights and number of offscreen buffers are separate concepts.
-const max_frames_in_flight: usize = 2;
+pub const max_frames_in_flight: usize = 3;
 
 const CommandBufferPool = @This();
 
-backing_mem: []Command,
-counts: [max_frames_in_flight]usize,
-state: BufferPoolState(max_frames_in_flight) = .{},
-
+const StateIntT: type = std.math.IntFittingRange(0, 1 << max_frames_in_flight);
 const max_commands = 1024;
+
+backing_mem: []Command,
+counts: [max_frames_in_flight]usize = .{0} ** max_frames_in_flight,
+state: Mailbox = .{},
 
 pub fn init(allocator: Allocator) !CommandBufferPool {
     const backing_mem = try allocator.alloc(Command, max_commands * max_frames_in_flight);
     return .{
         .backing_mem = backing_mem,
-        .counts = .{ 0, 0 },
     };
 }
-pub fn deinit(self: *CommandBufferPool, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *CommandBufferPool, allocator: Allocator) void {
     allocator.free(self.backing_mem);
 }
 
-pub fn acquireAvalible(self: *CommandBufferPool) ?CommandBuffer {
-    const index = self.state.acquireAvalible() orelse return null;
-    const buffer = self.getBuffer(index);
-    return buffer;
-}
-pub fn releaseReady(self: *CommandBufferPool, cmd_buffer: CommandBuffer) void {
-    const index = self.getBufferIndex(cmd_buffer);
-    self.counts[index] = cmd_buffer.count;
-    self.state.releaseReady(index, false);
+pub fn acquire(self: *CommandBufferPool) CommandBuffer {
+    const index = self.state.acquire();
+    return self.getBuffer(index);
 }
 
-pub fn acquireReady(self: *CommandBufferPool) ?CommandBuffer {
-    const index = self.state.acquireReady() orelse return null;
-    const buffer = self.getBuffer(index);
-    return buffer;
+pub fn publish(self: *CommandBufferPool, cmd_buffer: CommandBuffer) void {
+    const index = self.getBufferIndex(cmd_buffer);
+    self.counts[index] = cmd_buffer.count;
+    self.state.publish(index);
+}
+
+pub fn consume(self: *CommandBufferPool) ?CommandBuffer {
+    const index = self.state.consume();
+    if (index) |i| {
+        return self.getBuffer(i);
+    }
+    return null;
 }
 
 pub fn release(self: *CommandBufferPool, cmd_buffer: CommandBuffer) void {
     const index = self.getBufferIndex(cmd_buffer);
     self.counts[index] = 0;
-    self.state.release(index);
+    self.state.release();
 }
 
 fn getBuffer(self: *const CommandBufferPool, index: usize) CommandBuffer {

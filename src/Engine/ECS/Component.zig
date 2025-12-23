@@ -2,8 +2,11 @@ const std = @import("std");
 const math = @import("math");
 const utils = @import("utils");
 
-const PhysicsComponents = @import("Components/PhysicsComponents.zig");
-const RendererComponents = @import("Components/RendererComponents.zig");
+const foundation = @import("foundation");
+
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const ColorSprite = foundation.Render.ColorSprite;
 
 const root = @import("ecs.zig");
 const EntityID = root.EntityID;
@@ -14,8 +17,7 @@ const Signature = @import("Signature.zig");
 
 pub const Component = union(enum) {
     transform: math.Transform2D,
-    rigid_body: PhysicsComponents.RigidBody2D,
-    color_sprite: RendererComponents.ColorSprite,
+    color_sprite: ColorSprite,
 };
 
 pub const Kind = std.meta.FieldEnum(Component);
@@ -51,7 +53,7 @@ pub fn Array(comptime T: type) type {
                 self.elements.deinit(allocator);
             }
 
-            inline fn getIndex(self: @This(), entity: EntityID) ?usize {
+            inline fn getIndex(self: *const @This(), entity: EntityID) ?usize {
                 for (self.elements.items(.entity), 0..) |e, i| {
                     if (e == entity) {
                         return i;
@@ -64,13 +66,13 @@ pub fn Array(comptime T: type) type {
                 return self.elements.len == self.elements.capacity;
             }
 
-            pub fn get(self: @This(), entity: EntityID) ?*T {
+            pub fn getPtr(self: *const @This(), entity: EntityID) ?*T {
                 const index = self.getIndex(entity) orelse return null;
                 return &self.elements.items(.component)[index];
             }
 
             pub fn add(self: *@This(), entity: EntityID, component: T) void {
-                std.debug.assert(!self.isFull());
+                assert(!self.isFull());
 
                 self.elements.appendAssumeCapacity(.{
                     .entity = entity,
@@ -87,9 +89,9 @@ pub fn Array(comptime T: type) type {
         const ChunkIndexMap = std.AutoHashMapUnmanaged(EntityID, usize);
 
         chunks: [max_chunks]Chunk,
+        chunk_count: usize,
         chunk_indices: ChunkIndexMap,
         chunk_size: usize,
-        avalible_chunk_index: usize,
 
         pub fn init(allocator: std.mem.Allocator, chunk_size: usize) @This() {
             var chunks: [max_chunks]Chunk = undefined;
@@ -97,44 +99,46 @@ pub fn Array(comptime T: type) type {
 
             return .{
                 .chunks = chunks,
+                .chunk_count = 1,
                 .chunk_indices = .empty,
                 .chunk_size = chunk_size,
-                .avalible_chunk_index = 0,
             };
         }
 
         pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-            for (self.chunks) |chunk| {
+            for (self.chunks[0..self.chunk_count]) |*chunk| {
                 chunk.deinit(allocator);
             }
             self.chunk_indices.deinit(allocator);
-            allocator.free(self.chunks);
         }
 
-        inline fn findFirstAvalibleChunk(self: *@This()) usize {
-            for (&self.chunks, 0..) |*chunk, i| {
+        inline fn findFirstAvalibleChunk(self: *@This()) ?usize {
+            for (&self.chunks[0..self.chunk_count], 0..) |*chunk, i| {
                 if (!chunk.isFull()) {
                     return i;
                 }
             }
-            return self.chunks.len;
+            return null;
         }
 
         pub fn add(
             self: *@This(),
-            allocator: std.mem.Allocator,
+            allocator: Allocator,
             entity: EntityID,
             component: T,
         ) void {
-            const index = self.avalible_chunk_index;
+            const index = blk: for (self.chunks[0..self.chunk_count], 0..) |chunk, i| {
+                if (!chunk.isFull()) {
+                    break :blk i;
+                }
+            } else {
+                self.addChunk(allocator);
+                break :blk self.chunk_count - 1;
+            };
 
             const chunk: *Chunk = &self.chunks[index];
             self.chunk_indices.put(allocator, entity, chunk.elements.len) catch unreachable;
             chunk.add(entity, component);
-
-            if (chunk.isFull()) {
-                self.avalible_chunk_index = self.findFirstAvalibleChunk();
-            }
         }
 
         pub fn remove(self: *@This(), entity: EntityID) void {
@@ -142,16 +146,15 @@ pub fn Array(comptime T: type) type {
             const chunk_index = self.chunk_indices.get(entity) orelse return;
             self.chunks[chunk_index].remove(entity);
             self.chunk_indices.remove(entity);
-            self.avalible_chunk_index = self.findFirstAvalibleChunk();
         }
 
-        pub inline fn get(self: *@This(), entity: EntityID) ?T {
-            return self.getPtr(entity).?;
-        }
-
-        pub inline fn getPtr(self: *@This(), entity: EntityID) ?*T {
+        pub inline fn getPtr(self: *const @This(), entity: EntityID) ?*T {
             const chunk_index = self.chunk_indices.get(entity) orelse return null;
-            return self.chunks[chunk_index].get(entity);
+            return self.chunks[chunk_index].getPtr(entity);
+        }
+        fn addChunk(self: *@This(), allocator: Allocator) void {
+            self.chunks[self.chunk_count] = .init(allocator, self.chunk_size);
+            self.chunk_count += 1;
         }
     };
 }
@@ -197,6 +200,10 @@ pub fn deinitArrays(allocator: std.mem.Allocator, arrays: *Arrays) void {
     }
 }
 
-pub inline fn getArray(arrays: *Arrays, comptime kind: Kind) *Array(TypeFromKind(kind)) {
+pub inline fn getArrayPtr(arrays: *Arrays, comptime kind: Kind) *Array(TypeFromKind(kind)) {
     return &@field(arrays, @tagName(kind));
+}
+
+pub inline fn getArray(arrays: *const Arrays, comptime kind: Kind) Array(TypeFromKind(kind)) {
+    return @field(arrays, @tagName(kind));
 }

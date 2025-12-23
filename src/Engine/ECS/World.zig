@@ -51,7 +51,7 @@ pub fn createEntity(self: *World, components: []const Component.Component) ?Enti
     for (components) |component| {
         switch (component) {
             inline else => |c, kind| {
-                const array = Component.getArray(&self.arrays, kind);
+                const array = Component.getArrayPtr(&self.arrays, kind);
                 array.add(self.allocator, entity_id, c);
             },
         }
@@ -70,7 +70,7 @@ pub fn removeEntity(self: *World, entity_id: EntityID) void {
 
     const components = signature.decode();
     for (components) |component| {
-        const array = Component.getArray(&self.arrays, component);
+        const array = Component.getArrayPtr(&self.arrays, component);
         array.remove(entity_id);
     }
     self.entities.remove(entity_id);
@@ -98,7 +98,7 @@ pub fn addComponent(
     }
     self.entities.put(self.allocator, entity, new_signature);
 
-    const array = Component.getArray(&self.arrays, @tagName(component));
+    const array = Component.getArrayPtr(&self.arrays, @tagName(component));
     array.add(self.allocator, entity, component);
 }
 
@@ -108,19 +108,17 @@ pub fn removeComponent(self: *World, entity_id: EntityID, component_kind: Compon
     const new_signature = old_signature.removeComponent(component_kind);
     self.entities.putAssumeCapacity(entity_id, new_signature);
 
-    const array = Component.getArray(&self.arrays, component_kind);
+    const array = Component.getArrayPtr(&self.arrays, component_kind);
     array.remove(entity_id);
 }
 
 pub fn getComponent(
-    self: *World,
+    self: *const World,
     comptime kind: Component.Kind,
     entity_id: EntityID,
 ) ?Component.TypeFromKind(kind) {
-    return if (getComponentPtr(self, kind, entity_id)) |c|
-        c.*
-    else
-        null;
+    const array = Component.getArray(&self.arrays, kind);
+    return if (array.getPtr(entity_id)) |c| c.* else null;
 }
 
 pub fn getComponentPtr(
@@ -128,7 +126,7 @@ pub fn getComponentPtr(
     comptime kind: Component.Kind,
     entity_id: EntityID,
 ) ?*Component.TypeFromKind(kind) {
-    const array = Component.getArray(&self.arrays, kind);
+    const array = Component.getArrayPtr(&self.arrays, kind);
     return array.getPtr(entity_id);
 }
 

@@ -6,9 +6,18 @@ const foundation = @import("foundation");
 const Framebuffer = foundation.SofwareRenderer.Framebuffer;
 const log = std.log.scoped(.MetalContext);
 
+const c = @cImport({
+    @cInclude("CoreGraphics/CoreGraphics.h");
+});
+
 const CGSize = extern struct {
     width: f64,
     height: f64,
+};
+
+const Size = struct {
+    width: u32,
+    height: u32,
 };
 
 const Object = objc.Object;
@@ -32,10 +41,12 @@ const MTLOrigin = extern struct {
 
 device: Object,
 command_queue: Object,
+view: Object,
 layer: Object,
 frame_buffers: Object,
+need_resize: ?Size = null,
 
-pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
+pub fn init(backing_frame_buffer_mem: []const u32, view: Object) MetalContext {
     const device = Object.fromId(MTLCreateSystemDefaultDevice());
     std.debug.assert(device.value != nil);
 
@@ -46,8 +57,12 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
     );
     std.debug.assert(command_queue.value != nil);
 
-    const layer = objc.getClass("CAMetalLayer").?.msgSend(Object, "layer", .{});
-    std.debug.assert(layer.value != nil);
+    const CAMetalLayer = objc.getClass("CAMetalLayer").?;
+    const layer = CAMetalLayer.msgSend(Object, "layer", .{});
+
+    view.msgSend(void, "setWantsLayer:", .{true});
+    view.msgSend(void, "setLayer:", .{layer.value});
+
     layer.msgSend(void, "setDevice:", .{device.value});
 
     const frame_buffers = createFrameBuffers(device, backing_frame_buffer_mem);
@@ -55,6 +70,7 @@ pub fn init(backing_frame_buffer_mem: []const u32) MetalContext {
     return .{
         .device = device,
         .command_queue = command_queue,
+        .view = view,
         .layer = layer,
         .frame_buffers = frame_buffers,
     };
@@ -65,7 +81,7 @@ pub fn deinit(self: *const MetalContext) void {
     self.layer.msgSend(void, "release", .{});
 }
 
-pub fn resize(self: *MetalContext, backing_frame_buffer_mem: []const u32, width: u32, height: u32) void {
+pub fn recreateFramebuffers(self: *MetalContext, backing_frame_buffer_mem: []const u32, width: u32, height: u32) void {
     self.frame_buffers.msgSend(void, "release", .{});
     self.frame_buffers = createFrameBuffers(self.device, backing_frame_buffer_mem);
     self.resizeLayer(width, height);
@@ -95,23 +111,45 @@ fn resizeLayer(self: *const MetalContext, width: u32, height: u32) void {
 }
 
 pub fn blitAndPresentFramebuffer(
-    self: *const MetalContext,
+    self: *MetalContext,
     framebuffer: *const Framebuffer,
 ) void {
+    const autoreleaspool = objc.AutoreleasePool.init();
+    defer autoreleaspool.deinit();
+
     const drawable = self.layer.msgSend(Object, "nextDrawable", .{});
     if (drawable.value == nil) {
+        return;
+    }
+
+    const view_size: c.CGSize = self.view.msgSend(c.CGRect, "bounds", .{}).size;
+    const view_width: usize = @intFromFloat(view_size.width);
+    const view_height: usize = @intFromFloat(view_size.height);
+
+    const dst_texture: Object = drawable.msgSend(
+        Object,
+        "texture",
+        .{},
+    );
+
+    const dst_w = dst_texture.msgSend(usize, "width", .{});
+    const dst_h = dst_texture.msgSend(usize, "height", .{});
+
+    if (dst_w != view_width or dst_h != view_height) {
+        std.debug.print(
+            "view size changed from : {}x{}, texture size is {}x{}",
+            .{ view_width, view_height, dst_w, dst_h },
+        );
+        self.need_resize = .{
+            .width = @intCast(view_width),
+            .height = @intCast(view_height),
+        };
         return;
     }
 
     const cmd_buffer: Object = self.command_queue.msgSend(
         Object,
         "commandBuffer",
-        .{},
-    );
-
-    const dst_texture: Object = drawable.msgSend(
-        Object,
-        "texture",
         .{},
     );
 
@@ -122,9 +160,9 @@ pub fn blitAndPresentFramebuffer(
         framebuffer,
     );
 
-    cmd_buffer.msgSend(void, "presentDrawable:afterMinimumDuration:", .{ drawable.value, @as(f64, 0) });
+    cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
     cmd_buffer.msgSend(void, "commit", .{});
-    //cmd_buffer.msgSend(void, "waitUntilCompleted", .{});
+    cmd_buffer.msgSend(void, "waitUntilCompleted", .{});
 }
 
 fn blit(
@@ -133,10 +171,18 @@ fn blit(
     dst_texture: Object,
     framebuffer: *const Framebuffer,
 ) void {
-    const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
-
     const base_ptr: usize = @intFromPtr(mtl_buffer.msgSend(*anyopaque, "contents", .{}));
     const offset: usize = @intFromPtr(framebuffer.memory.ptr) - base_ptr;
+
+    const buf_len: usize = mtl_buffer.msgSend(usize, "length", .{});
+    const src_ptr: usize = @intFromPtr(framebuffer.memory.ptr);
+    std.debug.assert(src_ptr >= base_ptr);
+    std.debug.assert((src_ptr - base_ptr) + framebuffer.size() <= buf_len);
+
+    std.debug.assert(src_ptr >= base_ptr);
+    std.debug.assert((src_ptr - base_ptr) + framebuffer.size() <= buf_len);
+
+    const blit_encoder: Object = cmd_buffer.msgSend(Object, "blitCommandEncoder", .{});
 
     blit_encoder.msgSend(void, "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:", .{
         mtl_buffer,

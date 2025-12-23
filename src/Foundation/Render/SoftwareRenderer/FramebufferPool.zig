@@ -1,6 +1,6 @@
 const std = @import("std");
 const utils = @import("utils");
-const BufferPoolState = utils.BufferPoolState;
+const Mailbox = utils.Mailbox;
 
 const FramebufferPool = @This();
 const Atomic = std.atomic.Value;
@@ -15,7 +15,7 @@ width: u32,
 height: u32,
 
 mem_index: usize = 0,
-state: BufferPoolState(3) = .{},
+state: Mailbox = .{},
 new_size: ?Size = null,
 resize_state: Atomic(ResizeState) = .init(.idle),
 
@@ -89,7 +89,8 @@ pub fn deinit(self: *const FramebufferPool, allocator: std.mem.Allocator) void {
 pub fn requestResize(self: *FramebufferPool, new_width: u32, new_height: u32) void {
     const new_size: Size = .{ .width = new_width, .height = new_height };
 
-    self.resize_state.store(.in_progress, .monotonic);
+    self.resize_state.store(.in_progress, .release);
+    self.state.discardReady();
 
     self.new_size = new_size;
 }
@@ -112,7 +113,7 @@ fn bufferByteOffset(self: *const FramebufferPool, index: usize) usize {
     return byte_offset;
 }
 
-fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
+pub fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
     assert(index < max_buffer_count);
     const start = index * self.maxPixelsPerBuffer();
     const end = start + self.width * self.height;
@@ -125,38 +126,45 @@ fn getBuffer(self: *const FramebufferPool, index: usize) Framebuffer {
     };
 }
 
-pub fn acquireAvalible(self: *FramebufferPool) ?Framebuffer {
+pub fn acquire(self: *FramebufferPool) ?Framebuffer {
     if (self.isResizeing()) {
-        if (self.state.avalibleBufferCount() == buffer_count) {
+        if (self.state.isIdle()) {
             self.applyResize();
         } else {
             return null;
         }
     }
-    return if (self.state.acquireAvalible()) |index| self.getBuffer(index) else null;
+    const index = self.state.acquire();
+    return self.getBuffer(index);
 }
 
-pub fn releaseReady(self: *FramebufferPool, framebuffer: Framebuffer) void {
-    const discard = self.isResizeing();
-    self.state.releaseReady(self.getBufferIndex(framebuffer), discard);
-}
-
-pub fn acquireReady(self: *FramebufferPool) ?Framebuffer {
+pub fn publish(self: *FramebufferPool, framebuffer: Framebuffer) void {
     if (self.isResizeing()) {
+        self.state.is_writing.store(false, .release);
+        return;
+    }
+    self.state.publish(self.getBufferIndex(framebuffer));
+}
+
+pub fn consume(self: *FramebufferPool) ?Framebuffer {
+    if (self.isResizeing()) {
+        self.state.discardReady();
         return null;
     }
-    return if (self.state.acquireReady()) |index| self.getBuffer(index) else null;
+    return if (self.state.consume()) |index| self.getBuffer(index) else null;
 }
 
 pub fn release(self: *FramebufferPool, framebuffer: Framebuffer) void {
-    self.state.release(self.getBufferIndex(framebuffer));
+    const fb_index = self.getBufferIndex(framebuffer);
+    assert(fb_index == self.state.read_idx.load(.monotonic));
+    self.state.release();
 }
 pub fn isResizeing(self: *const FramebufferPool) bool {
-    return self.resize_state.load(.monotonic) == .in_progress;
+    return self.resize_state.load(.acquire) == .in_progress;
 }
 
 fn applyResize(self: *FramebufferPool) void {
-    if (self.state.avalibleBufferCount() != buffer_count) {
+    if (!self.state.isIdle()) {
         log.err("cannot apply resize: not all buffers are avalible", .{});
         return;
     }
@@ -172,7 +180,7 @@ fn applyResize(self: *FramebufferPool) void {
     log.info("resized framebuffers to {}x{}", .{ self.width, self.height });
 }
 
-fn getBufferIndex(self: *const FramebufferPool, framebuffer: Framebuffer) u2 {
+pub fn getBufferIndex(self: *const FramebufferPool, framebuffer: Framebuffer) u2 {
     assert(@intFromPtr(framebuffer.memory.ptr) >= @intFromPtr(self.backing_memory.ptr));
     const offset_bytes = @intFromPtr(framebuffer.memory.ptr) - @intFromPtr(self.backing_memory.ptr);
     const offset_pixels = offset_bytes / bytes_per_pixel;

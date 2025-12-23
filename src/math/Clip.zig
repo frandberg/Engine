@@ -3,7 +3,6 @@ const AABB = @import("AABB.zig");
 const Transform = @import("Transform.zig");
 const Transform2D = @import("Transform.zig").Transform2D;
 const Vector = @import("Vector.zig");
-const Rect = @import("Rect.zig");
 const Vec2f = Vector.Vec2f;
 
 const math = @import("root.zig");
@@ -18,7 +17,7 @@ const Quad2D = math.Quad2D;
 
 //const Line = math.Line;
 
-pub fn quad2DByAABB(quad: Quad2D, aabb: AABB, out_vertices: *[8]Vec2f) []const Vec2f {
+pub fn quad2DByAABB(quad: Quad2D, aabb: AABB, out_vertices: *[8]Vec2f) []Vec2f {
     const clip_vertices = aabb.vertices();
 
     return clip(&quad, &clip_vertices, out_vertices);
@@ -28,7 +27,7 @@ pub fn clip(
     subject_vertices: []const Vec2f,
     clip_vertices: []const Vec2f,
     out_vertices: []Vec2f,
-) []const Vec2f {
+) []Vec2f {
     assert(subject_vertices.len >= 3);
     assert(clip_vertices.len >= 3);
     // std.debug.print(

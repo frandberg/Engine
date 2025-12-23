@@ -6,31 +6,32 @@ const Vec2f = Vector.Vec2f;
 const AABB = @import("AABB.zig");
 
 const Transform2D = @import("Transform.zig").Transform2D;
+const Mat3f = @import("Matrix.zig").Mat3f;
 
 const Quad2D = math.Quad2D;
 
-const Rect = @This();
+const Extensts = @This();
 
 half_width: f32,
 half_height: f32,
 
-pub fn fullExtents(self: Rect) Rect {
+pub fn fullExtents(self: Extensts) Extensts {
     return .{
         .half_width = self.half_width * 2.0,
         .half_height = self.half_height * 2.0,
     };
 }
 
-pub fn quad(self: Rect, transform: Transform2D) Quad2D {
+pub fn quad(self: Extensts, transform: Mat3f) Quad2D {
     return .{
-        transform.apply(.{ .x = -self.half_width, .y = -self.half_height }), // TL
-        transform.apply(.{ .x = -self.half_width, .y = self.half_height }), // BL
-        transform.apply(.{ .x = self.half_width, .y = self.half_height }), // BR
-        transform.apply(.{ .x = self.half_width, .y = -self.half_height }), // TR
+        transform.mulVec2(.{ .x = -self.half_width, .y = -self.half_height }), // TL
+        transform.mulVec2(.{ .x = -self.half_width, .y = self.half_height }), // BL
+        transform.mulVec2(.{ .x = self.half_width, .y = self.half_height }), // BR
+        transform.mulVec2(.{ .x = self.half_width, .y = -self.half_height }), // TR
     };
 }
 
-pub fn Aabb(self: Rect, transform: Transform2D) AABB {
+pub fn Aabb(self: Extensts, transform: Mat3f) AABB {
     const q = self.quad(transform);
 
     const xs: @Vector(4, f32) = .{ q[0].x, q[1].x, q[2].x, q[3].x };

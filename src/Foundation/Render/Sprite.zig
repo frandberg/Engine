@@ -1,6 +1,6 @@
 const math = @import("math");
 
 pub const ColorSprite = struct {
-    rect: math.Rect,
+    extents: math.Extents,
     color: math.Color,
 };

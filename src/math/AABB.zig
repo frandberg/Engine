@@ -3,7 +3,7 @@ const std = @import("std");
 const math = @import("root.zig");
 const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
-const Rectf = math.Rectf;
+const Extents = math.Extents;
 const Mat3f = math.Mat3f;
 
 const Transform2D = math.Transform2D;
@@ -25,12 +25,12 @@ pub fn vertices(self: AABB) [4]Vec2f {
     };
 }
 
-pub fn fromRect(rect: Rectf, transform: math.Mat3f) AABB {
-    const corners: [4]Vec3f = .{
-        transform.mulVec(Vec3f{ .x = rect.half_width, .y = rect.half_height, .z = 1.0 }),
-        transform.mulVec(Vec3f{ .x = rect.half_width, .y = -rect.half_height, .z = 1.0 }),
-        transform.mulVec(Vec3f{ .x = -rect.half_width, .y = rect.half_height, .z = 1.0 }),
-        transform.mulVec(Vec3f{ .x = -rect.half_width, .y = -rect.half_height, .z = -1.0 }),
+pub fn fromExtents(extents: Extents, transform: math.Mat3f) AABB {
+    const corners: [4]Vec2f = .{
+        transform.mulVec2(Vec3f{ .x = extents.half_width, .y = extents.half_height }),
+        transform.mulVec2(Vec3f{ .x = extents.half_width, .y = -extents.half_height }),
+        transform.mulVec2(Vec3f{ .x = -extents.half_width, .y = extents.half_height }),
+        transform.mulVec2(Vec3f{ .x = -extents.half_width, .y = -extents.half_height }),
     };
     return fromPolygon(&corners);
 }

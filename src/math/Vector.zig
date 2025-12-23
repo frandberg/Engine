@@ -98,6 +98,10 @@ pub fn dot(a: anytype, b: @TypeOf(a)) ElemT(@TypeOf(a)) {
     return @reduce(.Add, simd(a) * simd(b));
 }
 
+pub inline fn det(a: Vec2f, b: Vec2f) f32 {
+    return a.x * b.y - a.y * b.x;
+}
+
 pub const Vec2f = Vec2(f32);
 pub const Vec3f = Vec3(f32);
 pub const Vec4f = Vec4(f32);

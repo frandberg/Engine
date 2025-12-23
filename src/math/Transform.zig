@@ -11,11 +11,16 @@ pub const Transform2D = struct {
     scale: Vec2f,
 
     pub fn mat3(self: Transform2D) Mat3f {
+        const c = @cos(self.rotation);
+        const s = @sin(self.rotation);
+
         return .{
-            .rows = .{
-                .{ @cos(self.rotation) * self.scale.x, -@sin(self.rotation) * self.scale.y, self.translation.x },
-                .{ @sin(self.rotation) * self.scale.y, @cos(self.rotation) * self.scale.x, self.translation.y },
-                .{ 0.0, 0.0, 1.0 },
+            .mat = .{
+                .rows = .{
+                    .{ c * self.scale.x, s * self.scale.x, 0.0 },
+                    .{ -s * self.scale.y, c * self.scale.y, 0.0 },
+                    .{ self.translation.x, self.translation.y, 1.0 },
+                },
             },
         };
     }
