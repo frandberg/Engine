@@ -2,11 +2,11 @@ const std = @import("std");
 const math = @import("math");
 const utils = @import("utils");
 
-const foundation = @import("foundation");
+const core = @import("core");
 
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ColorSprite = foundation.Render.ColorSprite;
+const ColorSprite = core.Graphics.ColorSprite;
 
 const root = @import("ecs.zig");
 const EntityID = root.EntityID;

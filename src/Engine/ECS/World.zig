@@ -58,10 +58,6 @@ pub fn createEntity(self: *World, components: []const Component.Component) ?Enti
     }
     self.next_entity_id += 1;
 
-    const sprite_array = @field(self.arrays, "color_sprite");
-    const e = sprite_array.chunks[0].elements.items(.entity)[0];
-    std.debug.print("world: {any}\n", .{e});
-
     return entity_id;
 }
 

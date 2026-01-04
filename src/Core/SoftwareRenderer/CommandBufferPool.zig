@@ -1,11 +1,12 @@
 const std = @import("std");
 const utils = @import("utils");
 const CommandBuffer = @import("CommandBuffer.zig");
+const Graphics = @import("../Graphics/Graphics.zig");
 const Mailbox = utils.Mailbox;
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Command = CommandBuffer.Command;
+const Command = Graphics.Command;
 const Atomic = std.atomic.Value;
 const log = std.log.scoped(.CommandBufferPool);
 

@@ -1,14 +1,15 @@
 const std = @import("std");
 const objc = @import("objc");
-const c = @import("c.zig");
-const foundation = @import("foundation");
+const c = @import("../c.zig").c;
+const core = @import("core");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayListUnmanaged;
 
-const Input = foundation.Input;
+const Input = core.Input;
 const Event = Input.Event;
 const EventKind = Input.EventKind;
+const EventBuffers = Input.EventBuffers;
 
 const Atomic = std.atomic.Value;
 
@@ -20,69 +21,48 @@ const Object = objc.Object;
 
 const nil: objc.c.id = @ptrFromInt(0);
 
-const CocoaEventKind = enum(usize) {
+const CocoaEventKind = enum(u8) {
     key_down = 10,
     key_up = 11,
+    _,
+
+    const mask: u64 = blk: {
+        var m: u64 = 0;
+        for (std.meta.fields(CocoaEventKind)) |field| {
+            m |= 1 << @as(u8, @intCast(field.value));
+        }
+        break :blk m;
+    };
 };
 
 const CocoaEvent = union(CocoaEventKind) {
     key_down: Input.KeyCode,
     key_up: Input.KeyCode,
-    closed: void,
 };
 
-app: Object,
-arena: ArenaAllocator,
-event_queue: ArrayList(Input.Event),
-is_polling: Atomic(bool),
-
-// TODO everything
-pub fn init(gpa: Allocator, app: Object) Event {
-    const arenas = [_]ArenaAllocator{.init(gpa)} ** 2;
-    return .{
-        .app = app,
-        .arenas = arenas,
-    };
-}
-
-pub fn pollEvents(self: *const Self) ?Input.Event {
-    self.is_polling.store(true, .release);
-    defer self.is_polling.store(false, .release);
-    const distant_past = distantPast();
-
-    while (pollEvent(self.app, distant_past)) |event| {
-        _ = event;
-        self.app.msgSend(void, "updateWindows", .{});
-    }
-}
-
-fn distantPast() Object {
-    const NSDate = objc.getClass("NSDate").?;
-    return NSDate.msgSend(Object, "distantPast", .{});
-}
-fn pollEvent(app: Object, until_date: Object) ?Input.Event {
-    const mask: usize = std.math.maxInt(usize);
-    const event_obj = app.msgSend(Object, "nextEventMatchingMask:untilDate:inMode:dequeue:", .{
+pub fn next(app: Object) ?Object {
+    const mask: u64 = std.math.maxInt(u64);
+    const event = app.msgSend(Object, "nextEventMatchingMask:untilDate:inMode:dequeue:", .{
         mask,
-        until_date,
+        nil,
         NSDefaultRunLoopMode,
         true,
     });
-
-    if (event_obj.value == nil) {
+    if (event.value == nil) {
         return null;
+    } else {
+        return event;
     }
-    const kind: CocoaEventKind = @enumFromInt(event_obj.msgSend(usize, "type", .{}));
-    const event: CocoaEvent = switch (kind) {
-        .key_down => .{
-            .key_down = translateKeyCode(event_obj.msgSend(u16, "keyCode", .{})),
-        },
-        .key_up => .{
-            .key_up = translateKeyCode(event_obj.msgSend(u16, "keyCode", .{})),
-        },
-        else => null,
+}
+
+pub fn decode(event: Object) ?Event {
+    const event_kind: CocoaEventKind = @enumFromInt(event.msgSend(u64, "type", .{}));
+
+    return switch (event_kind) {
+        .key_down => .{ .key_down = translateKeyCode(event.msgSend(u16, "keyCode", .{})) },
+        .key_up => .{ .key_up = translateKeyCode(event.msgSend(u16, "keyCode", .{})) },
+        _ => null,
     };
-    return event;
 }
 
 //pub fn getEvents(self: *const Self, allocator: Allocator) ![]Input.Event {}
@@ -188,5 +168,7 @@ fn translateKeyCode(key_code: u16) Input.KeyCode {
         c.kVK_F18 => .f18,
         c.kVK_F19 => .f19,
         c.kVK_F20 => .f20,
+
+        else => std.debug.panic("invalid keycode: {}\n", .{key_code}),
     };
 }

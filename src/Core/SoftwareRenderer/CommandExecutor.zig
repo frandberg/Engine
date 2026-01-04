@@ -1,40 +1,36 @@
 const std = @import("std");
 const FramebufferPool = @import("FramebufferPool.zig");
 const math = @import("math");
+const CommandBuffer = @import("CommandBuffer.zig");
+const Graphics = @import("../Graphics/Graphics.zig");
+const Texture = @import("Texture.zig");
+
+const Command = Graphics.Command;
 const Color = math.Color;
-const CommandBuffer = @import("../CommandBuffer.zig");
-const Command = CommandBuffer.Command;
 const Rect = math.Rect;
 const Vec2f = math.Vec2f;
 const AABB = math.AABB;
 const Transform2D = math.Transform2D;
-const Camera = @import("../Camera.zig");
+const Camera = Graphics.Camera;
+const Format = Graphics.Format;
+const Sprite = Graphics.Sprite;
+const ColorSprite = Sprite.ColorSprite;
 
 const View = @import("Renderer.zig").View;
 
-const Sprite = @import("../Sprite.zig");
-const ColorSprite = Sprite.ColorSprite;
-
 const edge = math.edge;
 
-const Framebuffer = FramebufferPool.Framebuffer;
-
 const log = std.log.scoped(.renderer);
-
-pub fn toBGRA(color: Color) u32 {
-    return @as(u32, @intFromFloat(@round(color.b * 255.0))) |
-        @as(u32, @intFromFloat(@round(color.g * 255.0))) << 8 |
-        @as(u32, @intFromFloat(@round(color.r * 255.0))) << 16 |
-        @as(u32, @intFromFloat(@round(color.a * 255.0))) << 24;
-}
+const assert = std.debug.assert;
 
 pub fn drawColorSprite(
-    framebuffer: FramebufferPool.Framebuffer,
+    target: Texture,
     view: View,
     sprite: ColorSprite,
     transform: math.Mat3f,
 ) void {
-    const mvp = transform.mul(view.view_projection);
+    // const mvp = transform.mul(view.view_projection);
+    const mvp = view.view_projection.mul(transform);
     const quad = sprite.extents.quad(mvp);
 
     const bounds = AABB{
@@ -54,7 +50,7 @@ pub fn drawColorSprite(
     var vertices_copy: [4]Vec2f = undefined;
     @memcpy(&vertices_copy, polygon_vertices[0..4]);
 
-    applyViewport(polygon_vertices, @floatFromInt(framebuffer.width), @floatFromInt(framebuffer.height));
+    applyViewport(polygon_vertices, @floatFromInt(target.width), @floatFromInt(target.height));
     // log.info("extensts = {}\ntransform = {any}\nquad = {any}\nmvp_rows = {any}\nvertices = {any}\nvertices after viewport: {any}\n", .{
     //     sprite.extents,
     //     transform.mat.rows,
@@ -70,7 +66,12 @@ pub fn drawColorSprite(
             polygon_vertices[last_corner_index - 1],
             polygon_vertices[last_corner_index],
         };
-        rasterizeTriangle(framebuffer, triangle, sprite.color);
+        switch (target.memory) {
+            inline else => |_, format| {
+                const T: type = format.BackingType();
+                rasterizeTriangleColor(T, target.raw(T), triangle, sprite.color);
+            },
+        }
     }
 }
 
@@ -82,10 +83,10 @@ fn applyViewport(vertex_positions: []Vec2f, width: f32, height: f32) void {
     }
 }
 
-fn rasterizeTriangle(framebuffer: Framebuffer, vertex_positions: [3]Vec2f, color: Color) void {
+fn rasterizeTriangleColor(comptime T: type, target: Texture.Raw(T), vertex_positions: [3]Vec2f, color: Color) void {
     const aabb = AABB.fromPolygon(&vertex_positions);
-    const clamp_upper_y: f32 = @floatFromInt(framebuffer.height - 1);
-    const clamp_upper_x: f32 = @floatFromInt(framebuffer.width - 1);
+    const clamp_upper_y: f32 = @floatFromInt(target.height - 1);
+    const clamp_upper_x: f32 = @floatFromInt(target.width - 1);
 
     const max_y = floorClamp(0.0, clamp_upper_y, aabb.max.y);
     const min_y = ceilClamp(0.0, clamp_upper_y, aabb.min.y);
@@ -93,7 +94,7 @@ fn rasterizeTriangle(framebuffer: Framebuffer, vertex_positions: [3]Vec2f, color
     const max_x = floorClamp(0.0, clamp_upper_x, aabb.max.x);
     const min_x = ceilClamp(0.0, clamp_upper_x, aabb.min.x);
 
-    const bgra_color = toBGRA(color);
+    const pixel_color: T = target.format.pixel(color);
 
     const a = vertex_positions[0];
     const b = vertex_positions[1];
@@ -112,14 +113,57 @@ fn rasterizeTriangle(framebuffer: Framebuffer, vertex_positions: [3]Vec2f, color
             const edge_c = edge(c, a, pixel_center);
 
             if (edge_a <= 0.0 and edge_b <= 0.0 and edge_c <= 0.0) {
-                const pixel_index = y * framebuffer.width + x;
+                const pixel_index = y * target.width + x;
+                target.memory[pixel_index] = pixel_color;
+            }
+        }
+    }
+}
+fn RasterizeTriangleInfo(comptime format: Format) type {
+    return struct {
+        a: Vec2f,
+        b: Vec2f,
+        c: Vec2f,
+        memory: []format.BackingType(),
+        width: u32,
+        min_x: u32,
+        max_x: u32,
+        min_y: u32,
+        max_y: u32,
+        color: format.BackingType(),
+    };
+}
 
-                framebuffer.memory[pixel_index] = bgra_color;
+fn rasterizeFromInfo(comptime format: Format, info: RasterizeTriangleInfo(format)) void {
+    for (info.min_y..info.max_y + 1) |y| {
+        @setRuntimeSafety(false);
+        for (info.min_x..info.max_x + 1) |x| {
+            const pixel_center: Vec2f = .{
+                .x = @as(f32, @floatFromInt(x)) + 0.5,
+                .y = @as(f32, @floatFromInt(y)) + 0.5,
+            };
+
+            const edge_a = edge(info.a, info.b, pixel_center);
+            const edge_b = edge(info.b, info.c, pixel_center);
+            const edge_c = edge(info.c, info.a, pixel_center);
+
+            if (edge_a <= 0.0 and edge_b <= 0.0 and edge_c <= 0.0) {
+                const pixel_index = y * info.width + x;
+                setPixel(format, info.memory, pixel_index, info.color);
             }
         }
     }
 }
 
+inline fn setPixel(comptime format: Format, memory: []u8, pixel_index: usize, color: Texture.Pixel.Type(format)) void {
+    switch (format) {
+        .bgra8_u => {
+            const index = pixel_index * 4;
+            const pixel: *u32 = std.mem.bytesAsValue(u32, memory[index .. index + 4]);
+            pixel.* = color;
+        },
+    }
+}
 fn lessThanByY(a: Vec2f, b: Vec2f) bool {
     return a.y < b.y;
 }

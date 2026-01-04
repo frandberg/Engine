@@ -23,41 +23,10 @@ pub const Mat3f = Matrix.Mat3(f32);
 pub const Transform2D = Transform.Transform2D;
 pub const Extents = @import("Extents.zig");
 
-pub const Rect = struct {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-};
-
 pub const Quad2D = [4]Vec2f;
 pub const Quad3D = [4]Vec3f;
 
 pub const Clip = @import("Clip.zig");
-
-//A plane defined by a normal and a value d akin to the normal/equation form ax
-pub const Line = struct {
-    normal: Vec2f,
-    d: f32,
-
-    pub fn fromPoints(tail: Vec2f, head: Vec2f) Line {
-        const dir_vec = vec(simd(head) - simd(tail));
-        const normal: Vec2f = .{
-            .x = -dir_vec.y,
-            .y = dir_vec.x,
-        };
-        const d = Vector.dot(normal, tail);
-        return .{
-            .normal = normal,
-            .d = d,
-        };
-    }
-};
-
-pub const Plane = struct {
-    normal: Vec3f,
-    d: f32,
-};
 
 pub const Color = Vector.Color;
 
@@ -66,3 +35,28 @@ pub fn edge(a: Vec2f, b: Vec2f, p: Vec2f) f32 {
     const ap: Vec2f = vec(simd(p) - simd(a));
     return Vector.det(ab, ap);
 }
+
+pub const Rect = struct {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+};
+
+pub fn Size(comptime T: type) type {
+    return struct {
+        width: T,
+        height: T,
+
+        pub fn eql(self: @This(), other: @This()) bool {
+            return self.width == other.width and self.height == other.height;
+        }
+
+        pub fn isZero(self: @This()) bool {
+            return self.width == 0 and self.height == 0;
+        }
+    };
+}
+
+pub const Sizeu = Size(u32);
+pub const Sizef = Size(f32);

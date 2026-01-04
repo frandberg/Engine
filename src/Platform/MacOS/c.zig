@@ -1,4 +1,5 @@
-const c = @cImport({
+pub const c = @cImport({
     @cInclude("CoreGraphics/CoreGraphics.h");
     @cInclude("CoreFoundation/CoreFoundation.h");
+    @cInclude("Carbon/Carbon.h");
 });

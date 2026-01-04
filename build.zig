@@ -23,8 +23,8 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const foundation = b.createModule(.{
-        .root_source_file = b.path("src/Foundation/root.zig"),
+    const core = b.createModule(.{
+        .root_source_file = b.path("src/Core/root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -43,8 +43,9 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            mac_os_mod.addImport("foundation", foundation);
+            mac_os_mod.addImport("core", core);
             mac_os_mod.addImport("objc", objc_dep.module("objc"));
+            mac_os_mod.addImport("math", math);
 
             for (macos_frameworks) |framework_name| {
                 mac_os_mod.linkFramework(framework_name, .{});
@@ -54,11 +55,11 @@ pub fn build(b: *std.Build) !void {
         else => @panic("Unsupported OS"),
     };
 
-    foundation.addImport("math", math);
-    foundation.addImport("utils", utils);
+    core.addImport("math", math);
+    core.addImport("utils", utils);
 
     engine.addImport("math", math);
     engine.addImport("utils", utils);
-    engine.addImport("foundation", foundation);
+    engine.addImport("core", core);
     engine.addImport("platform", platform);
 }

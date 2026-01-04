@@ -1,11 +1,14 @@
 const std = @import("std");
-const Sprite = @import("Sprite.zig");
-
 const math = @import("math");
+const Graphics = @import("../Graphics/Graphics.zig");
+
+const Command = Graphics.Command;
+const Sprite = Graphics.Sprite;
+const Camera = Graphics.Camera;
+
 const Color = math.Color;
 const ColorSprite = Sprite.ColorSprite;
 const Transform2D = math.Transform2D;
-const Camera = @import("Camera.zig");
 
 const CommandBuffer = @This();
 
@@ -14,19 +17,8 @@ const log = std.log.scoped(.command_recorder);
 buffer: []Command,
 count: usize = 0,
 
-pub const ViewSpec = struct {
-    camera: Camera,
-    viewport: math.Rect,
-};
-
-pub const DrawColorSprite = struct {
-    sprite: ColorSprite,
-    transform: math.Mat3f,
-};
-pub const Command = union(enum) {
-    set_view: ViewSpec,
-    draw_color_sprite: DrawColorSprite,
-    clear: Color,
+const vtab: Graphics.CommandBuffer.VTab = .{
+    .push = push,
 };
 
 pub fn init(memory: []Command) CommandBuffer {
@@ -36,15 +28,23 @@ pub fn init(memory: []Command) CommandBuffer {
 }
 pub fn deinit(_: *CommandBuffer) void {}
 
-pub fn push(self: *CommandBuffer, command: Command) void {
+pub fn cmdBuffer(self: *CommandBuffer) Graphics.CommandBuffer {
+    return .{
+        .ptr = self,
+        .vtab = &vtab,
+    };
+}
+
+pub inline fn slice(self: *const CommandBuffer) []const Command {
+    return self.buffer[0..self.count];
+}
+
+fn push(ptr: *anyopaque, command: Command) void {
+    const self: *CommandBuffer = @ptrCast(@alignCast(ptr));
     if (self.count + 1 == self.buffer.len) {
         log.warn("max render commands reached\n", .{});
         return;
     }
     self.buffer[self.count] = command;
     self.count += 1;
-}
-
-pub inline fn slice(self: *const CommandBuffer) []const Command {
-    return self.buffer[0..self.count];
 }

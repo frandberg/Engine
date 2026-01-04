@@ -10,7 +10,7 @@ const log = std.log.scoped(.Time);
 timebase_info: c.mach_timebase_info_data_t,
 
 pub const RepeatingTimer = struct {
-    time: *const Time,
+    time: Time,
     start_time: u64,
     time_step: u64,
     iteration: usize = 1,
@@ -25,7 +25,7 @@ pub const RepeatingTimer = struct {
         }
     };
 
-    pub fn start(time: *const Time, time_step_seconds: f64) RepeatingTimer {
+    pub fn start(time: Time, time_step_seconds: f64) RepeatingTimer {
         return .{
             .time = time,
             .start_time = c.mach_absolute_time(),

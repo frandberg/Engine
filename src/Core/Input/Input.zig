@@ -3,6 +3,8 @@ const Input = @This();
 
 pub const KeyCode = @import("KeyCodes.zig").KeyCode;
 
+pub const EventBuffers = @import("EventBuffers.zig");
+
 pub const EventKind = enum {
     key_down,
     key_up,
