@@ -2,6 +2,7 @@ const std = @import("std");
 const Engine = @import("Engine");
 
 const Allocator = std.mem.Allocator;
+const log = std.log.scoped(.game);
 
 const Graphics = Engine.Graphics;
 const ecs = Engine.ecs;
@@ -32,13 +33,14 @@ pub fn init(gpa: Allocator, window_target: TargetHandle) Game {
     const sprite: ColorSprite = .{
         .color = white,
         .extents = .{
-            .half_width = 0.5,
-            .half_height = 0.5,
+            .half_width = 1.0,
+            .half_height = 1.0,
         },
     };
     const transform: Transform2D = .{
         .translation = .{ .x = 0, .y = 0 },
-        .rotation = 0.0,
+        .rotation = 0.788,
+
         .scale = .{ .x = 1.0, .y = 1.0 },
     };
 
@@ -73,13 +75,18 @@ pub fn init(gpa: Allocator, window_target: TargetHandle) Game {
 pub fn deinit(self: *Game) void {
     self.world.deinit();
 }
-
+var frame_index: usize = 0;
 pub fn update(self: *Game, time_step_seconds: f64) void {
     const entity = self.entity;
     const ts: f32 = @floatCast(time_step_seconds);
 
-    const transform = self.world.getComponentPtr(.transform, entity).?;
-    transform.rotation += 1.0 * ts;
+    const transform: *Transform2D = self.world.getComponentPtr(.transform, entity).?;
+
+    const rotation_speed = 1.0;
+    if (frame_index % 1 == 0) {
+        transform.rotation += rotation_speed * ts;
+    }
+    frame_index += 1;
 }
 
 pub fn render(self: *const Game, command_buffer: Engine.Graphics.CommandBuffer) void {
