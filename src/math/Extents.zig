@@ -15,23 +15,30 @@ const Extensts = @This();
 half_width: f32,
 half_height: f32,
 
-pub fn fullExtents(self: Extensts) Extensts {
+pub fn full(self: Extensts) Extensts {
     return .{
         .half_width = self.half_width * 2.0,
         .half_height = self.half_height * 2.0,
     };
 }
 
-pub fn quad(self: Extensts, transform: Mat3f) Quad2D {
+pub fn fromFull(width: f32, height: f32) Extensts {
     return .{
-        transform.mulVec2(.{ .x = -self.half_width, .y = -self.half_height }), // TL
-        transform.mulVec2(.{ .x = -self.half_width, .y = self.half_height }), // BL
-        transform.mulVec2(.{ .x = self.half_width, .y = self.half_height }), // BR
-        transform.mulVec2(.{ .x = self.half_width, .y = -self.half_height }), // TR
+        .half_width = width / 2,
+        .half_height = height / 2,
     };
 }
 
-pub fn Aabb(self: Extensts, transform: Mat3f) AABB {
+pub fn quad(self: Extensts, transform: Mat3f) Quad2D {
+    return .{
+        transform.mulVec2(.{ .x = -self.half_width, .y = -self.half_height }), // BL
+        transform.mulVec2(.{ .x = self.half_width, .y = -self.half_height }), // BR
+        transform.mulVec2(.{ .x = self.half_width, .y = self.half_height }), // TR
+        transform.mulVec2(.{ .x = -self.half_width, .y = self.half_height }), // TL
+    };
+}
+
+pub fn aabb(self: Extensts, transform: Mat3f) AABB {
     const q = self.quad(transform);
 
     const xs: @Vector(4, f32) = .{ q[0].x, q[1].x, q[2].x, q[3].x };

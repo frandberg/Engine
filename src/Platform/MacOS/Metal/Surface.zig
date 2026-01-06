@@ -109,6 +109,7 @@ pub fn recreate(
     self.setDrawableSize(size);
 }
 
+var frame_index: usize = 0;
 pub fn present(self: *MetalSurface, mtl_context: Context, framebuffer_pool: *FramebufferPool) void {
     const autorelease_pool = AutoreleasePool.init();
     defer autorelease_pool.deinit();
@@ -141,11 +142,25 @@ pub fn present(self: *MetalSurface, mtl_context: Context, framebuffer_pool: *Fra
         .{},
     );
 
-    blit(self.frambuffers, cmd_buffer, dst_texture, framebuffer);
+    if (frame_index == 0) {
+        const file = std.fs.cwd().createFile("broken_quad.bmp", .{}) catch @panic("file open failed");
+        defer file.close();
+        var writer_buffer: [4096]u8 = undefined;
+        var writer = file.writer(&writer_buffer);
+
+        const texture = framebuffer.texture;
+
+        const pixels: []const u8 = @alignCast(std.mem.sliceAsBytes(texture.raw(.bgra8_u).memory));
+
+        writeBmp(&writer.interface, pixels, @intCast(texture.width), @intCast(texture.height), texture.pitch()) catch @panic("failed to write bmp");
+    }
+
+    blit(self.frambuffers, cmd_buffer, dst_texture, framebuffer.texture);
 
     cmd_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
     cmd_buffer.msgSend(void, "commit", .{});
     cmd_buffer.msgSend(void, "waitUntilCompleted", .{});
+    frame_index += 1;
 }
 
 fn blit(
@@ -262,4 +277,52 @@ fn layerSize(self: *const MetalSurface) Sizeu {
         .width = @intFromFloat(size.width),
         .height = @intFromFloat(size.height),
     };
+}
+
+fn writeBmp(
+    writer: *std.Io.Writer,
+    pixels: []const u8, // BGRA8
+    width: i32,
+    height: i32,
+    pitch: usize,
+) !void {
+    const header_size: u32 = 14 + 40;
+    const image_size: u32 = @intCast(width * height * 4);
+    const file_size: u32 = header_size + image_size;
+
+    // -------------------------------------------------
+    // BITMAPFILEHEADER (14 bytes)
+    // -------------------------------------------------
+
+    try writer.writeByte('B');
+    try writer.writeByte('M');
+    try writer.writeInt(u32, file_size, .little);
+    try writer.writeInt(u16, 0, .little);
+    try writer.writeInt(u16, 0, .little);
+    try writer.writeInt(u32, header_size, .little);
+
+    // -------------------------------------------------
+    // BITMAPINFOHEADER (40 bytes)
+    // -------------------------------------------------
+    try writer.writeInt(u32, 40, .little); // biSize
+    try writer.writeInt(i32, width, .little);
+    try writer.writeInt(i32, -height, .little); // top-down
+    try writer.writeInt(u16, 1, .little); // planes
+    try writer.writeInt(u16, 32, .little); // bitcount
+    try writer.writeInt(u32, 0, .little); // BI_RGB
+    try writer.writeInt(u32, image_size, .little);
+    try writer.writeInt(i32, 0, .little); // X ppm
+    try writer.writeInt(i32, 0, .little); // Y ppm
+    try writer.writeInt(u32, 0, .little); // clr used
+    try writer.writeInt(u32, 0, .little); // clr important
+
+    // -------------------------------------------------
+    // Pixel data
+    // -------------------------------------------------
+    const row_bytes: usize = @intCast(width * 4);
+    var y: usize = 0;
+    while (y < height) : (y += 1) {
+        const src = y * pitch;
+        try writer.writeAll(pixels[src .. src + row_bytes]);
+    }
 }

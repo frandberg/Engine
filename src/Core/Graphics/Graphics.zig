@@ -16,8 +16,14 @@ pub const Target = struct {
     pub const Handle = u32;
     pub const Spec = struct {
         format: Format,
+        pixel_origin: PixelOrigin,
         width: u32,
         height: u32,
+    };
+
+    pub const PixelOrigin = enum {
+        top_left,
+        bottom_left,
     };
 };
 

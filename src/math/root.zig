@@ -7,7 +7,9 @@ pub const Transform = @import("Transform.zig");
 pub const vec = Vector.vec;
 pub const simd = Vector.simd;
 
-pub const AABB = @import("AABB.zig");
+const Aabb = @import("AABB.zig");
+pub const AABB = Aabb.AABB(f32);
+pub const AABBu = Aabb.AABB(u32);
 pub const Mat = Matrix.Mat;
 
 pub const VecT = Vector.VecT;
@@ -30,17 +32,20 @@ pub const Clip = @import("Clip.zig");
 
 pub const Color = Vector.Color;
 
-pub fn edge(a: Vec2f, b: Vec2f, p: Vec2f) f32 {
-    const ab: Vec2f = vec(simd(b) - simd(a));
-    const ap: Vec2f = vec(simd(p) - simd(a));
-    return Vector.det(ab, ap);
-}
-
 pub const Rect = struct {
     x: f32,
     y: f32,
     width: f32,
     height: f32,
+
+    pub fn quad(self: *const Rect) Quad2D {
+        return .{
+            .{ .x = self.x, .y = self.y },
+            .{ .x = self.x + self.width, .y = self.y },
+            .{ .x = self.x + self.width, .y = self.y + self.height },
+            .{ .x = self.x, .y = self.y + self.height },
+        };
+    }
 };
 
 pub fn Size(comptime T: type) type {
@@ -56,6 +61,12 @@ pub fn Size(comptime T: type) type {
             return self.width == 0 and self.height == 0;
         }
     };
+}
+
+pub fn edge(a: Vec2f, b: Vec2f, p: Vec2f) f32 {
+    const ab: Vec2f = vec(simd(b) - simd(a));
+    const ap: Vec2f = vec(simd(p) - simd(a));
+    return Vector.det(ab, ap);
 }
 
 pub const Sizeu = Size(u32);

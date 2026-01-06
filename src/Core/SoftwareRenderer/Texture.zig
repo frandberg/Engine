@@ -47,18 +47,18 @@ pub fn size(self: *const Texture) usize {
     return self.height * self.pitch();
 }
 
-pub fn Raw(comptime T: type) type {
+pub fn Raw(comptime format: Format) type {
     return struct {
-        memory: []T,
+        memory: []format.BackingType(),
         format: Format,
         width: u32,
         height: u32,
     };
 }
-pub fn raw(self: Texture, comptime T: type) Raw(T) {
+pub fn raw(self: Texture, comptime format: Format) Raw(format) {
     switch (self.memory) {
-        inline else => |memory, format| {
-            comptime std.debug.assert(format.BackingType() == T);
+        inline else => |memory, fmt| {
+            comptime std.debug.assert(fmt == format);
             return .{
                 .memory = memory,
                 .format = format,

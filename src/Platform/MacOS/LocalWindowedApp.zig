@@ -45,11 +45,14 @@ pub fn init(gpa: Allocator, spec: core.LocalWindowedAppSpec) !Application {
     var renderer: Renderer = try .init(gpa);
     errdefer renderer.deinit();
 
-    const main_window_render_target_id = try renderer.createWindowRenderTarget(.{
-        .width = spec.window.width,
-        .height = spec.window.height,
-        .format = Graphics.Format.bgra8_u,
-    });
+    const main_window_render_target_id = try renderer.createWindowRenderTarget(
+        .{
+            .width = spec.window.width,
+            .height = spec.window.height,
+            .format = Graphics.Format.bgra8_u,
+            .pixel_origin = .top_left,
+        },
+    );
     const window_render_target = renderer.render_targets.get(main_window_render_target_id).?.window;
 
     const cocoa_app: Cocoa.Application = try .init(gpa, spec.window);

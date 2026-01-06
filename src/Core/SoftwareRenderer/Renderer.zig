@@ -9,14 +9,15 @@ const Mat3f = math.Mat3f;
 
 pub const FramebufferPool = @import("FramebufferPool.zig");
 pub const Texture = @import("Texture.zig");
-const Target = @import("Target.zig").Target;
-
+const RenderTarget = @import("Target.zig");
 pub const CommandBuffer = @import("CommandBuffer.zig");
 const CommandBufferPool = @import("CommandBufferPool.zig");
 const Command = CommandBuffer.Command;
 
 const Graphics = @import("../Graphics/Graphics.zig");
 const Camera = Graphics.Camera;
+const Target = RenderTarget.Target;
+const BoundTarget = RenderTarget.Bound;
 //const WindowSpec = core.WindowSpec;
 
 const assert = std.debug.assert;
@@ -26,9 +27,9 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayHashMap = std.AutoArrayHashMapUnmanaged;
 const Semaphore = std.Thread.Semaphore;
 
-const CmdExecutor = @import("CommandExecutor.zig");
-const drawColorSprite = CmdExecutor.drawColorSprite;
-const toBGRA = CmdExecutor.toBGRA;
+const Draw = @import("Draw.zig");
+const drawColorSprite = draw.drawColorSprite;
+const toBGRA = draw.toBGRA;
 
 const Renderer = @This();
 const log = std.log.scoped(.renderer);
@@ -80,9 +81,13 @@ pub fn renderLoop(self: *Renderer, isRunning: *const fn () bool) void {
 }
 
 pub fn createWindowRenderTarget(self: *Renderer, spec: Graphics.Target.Spec) !Graphics.Target.Handle {
-    const framebuffer_pool: FramebufferPool = try .init(self.gpa, spec.width, spec.height, spec.format);
+    const framebuffer_pool: FramebufferPool = try .init(self.gpa, spec);
     const target_id = self.next_target_id;
-    try self.render_targets.put(self.gpa, target_id, .{ .window = framebuffer_pool });
+    try self.render_targets.put(
+        self.gpa,
+        target_id,
+        .{ .window = framebuffer_pool },
+    );
     self.next_target_id += 1;
     return target_id;
 }
@@ -96,7 +101,7 @@ pub fn submitCommandBuffer(self: *Renderer, command_buffer: CommandBuffer) void 
     self.wake_up.post();
 }
 
-fn acquireTarget(self: *Renderer, target_id: Graphics.Target.Handle) !Texture {
+fn acquireTarget(self: *Renderer, target_id: Graphics.Target.Handle) !BoundTarget {
     const gop = try self.state.acquired_tagets.getOrPut(self.arena_state.allocator(), target_id);
     if (gop.found_existing) {
         return gop.value_ptr.*;
@@ -132,11 +137,21 @@ pub fn executeCommand(self: *Renderer, command: Graphics.Command) !void {
 
 fn setView(self: *Renderer, view_spec: Graphics.ViewSpec) !void {
     const target = try self.acquireTarget(view_spec.target);
-    const aspect_ratio: f32 = @as(f32, @floatFromInt(target.width)) / @as(f32, @floatFromInt(target.height));
+    const texture = target.texture;
+
+    const aspect_ratio: f32 = @as(f32, @floatFromInt(texture.width)) / @as(f32, @floatFromInt(texture.height));
+
+    const viewport = view_spec.viewport;
+    const viewport_ndc: math.Rect = .{
+        .x = (viewport.x * 2.0) - 1.0,
+        .y = (viewport.y * 2.0) - 1.0,
+        .width = viewport.width * 2,
+        .height = viewport.height * 2,
+    };
     self.state.view = .{
         //TEMPORARY
         .view_projection = view_spec.camera.viewProjection(-aspect_ratio, aspect_ratio, -1.0, 1.0),
-        .viewport = view_spec.viewport,
+        .viewport = viewport_ndc.quad(),
     };
 
     self.state.target = target;
@@ -147,7 +162,7 @@ fn draw(self: *const Renderer, draw_cmd: Graphics.Command.Draw) void {
         if (self.state.view) |view| {
             switch (draw_cmd) {
                 .color_sprite => |draw_color_sprite| {
-                    drawColorSprite(
+                    Draw.colorSprite(
                         target,
                         view,
                         draw_color_sprite.sprite,
@@ -164,7 +179,8 @@ fn draw(self: *const Renderer, draw_cmd: Graphics.Command.Draw) void {
 }
 
 fn clear(self: *Renderer, clear_cmd: Graphics.Command.Clear) !void {
-    const texture = try self.acquireTarget(clear_cmd.target);
+    const target = try self.acquireTarget(clear_cmd.target);
+    const texture = target.texture;
 
     switch (texture.memory) {
         inline else => |memory, format| {
@@ -177,11 +193,11 @@ fn clear(self: *Renderer, clear_cmd: Graphics.Command.Clear) !void {
 
 pub const View = struct {
     view_projection: math.Mat3f,
-    viewport: math.Rect,
+    viewport: math.Quad2D,
 };
 
 const State = struct {
     view: ?View = null,
-    target: ?Texture = null,
-    acquired_tagets: ArrayHashMap(Graphics.Target.Handle, Texture) = .empty,
+    target: ?BoundTarget = null,
+    acquired_tagets: ArrayHashMap(Graphics.Target.Handle, BoundTarget) = .empty,
 };
